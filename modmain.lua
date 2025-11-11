@@ -28,6 +28,20 @@ local c = {
 }
 local highlit = {}
 
+-- may cause bug by item.replica is nil. It happens when item is given by some NPC? I don't know really. But it may work now.
+local function Count(item)
+    if not item then
+        return 0
+    end
+    if item.replica and item.replica.stackable then
+        return item.replica.stackable:StackSize() or 1
+    elseif item.components and item.components.stackable then
+        return item.components.stackable:StackSize() or 1
+    else
+        return 1
+    end
+end
+
 --[[
     These two functions are from mod Find It.
     Please check it out and subscribe it if you like!
@@ -560,19 +574,7 @@ end
 local ContainerReplica = require "components/container_replica"
 local ThePlayer = _G.ThePlayer
 
--- may cause bug by item.replica is nil. It happens when item is given by some NPC? I don't know really. But it may work now.
-local function Count(item)
-    if not item then
-        return 0
-    end
-    if item.replica and item.replica.stackable then
-        return item.replica.stackable:StackSize() or 1
-    elseif item.components and item.components.stackable then
-        return item.components.stackable:StackSize() or 1
-    else
-        return 1
-    end
-end
+
 
 -- -- called by server
 
