@@ -2,6 +2,8 @@ local _G = GLOBAL
 local TheSim = _G.TheSim
 local TheNet = _G.TheNet
 
+local tonumber = GLOBAL.tonumber
+
 local MAX_SEARCH_RANGE = GetModConfigData("MAX_RANGE")
 local REFRESH_TIME = GetModConfigData("REFRESH_TIME")
 -- local MAX_SEARCH_RANGE = 10
