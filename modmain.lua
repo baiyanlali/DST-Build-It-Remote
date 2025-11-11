@@ -87,40 +87,62 @@ local function GetSurroundingContainers(inst)
         end
     end
     cache_chests[inst] = chests
-    print("Found "..#chests.." chests " .. loCount)
+    -- 调试信息，发布版本可以注释掉
+        -- print("Found "..#chests.." chests " .. loCount)
     loCount = loCount + 1
     -- loCount = loCount % 300
     return chests
 end
 
 function HasInContainers(inst, item, amount)
+    if not inst or not item then
+        return false, 0
+    end
 
     local chests = GetSurroundingContainers(inst)
     local num_found = 0
     for i, v in ipairs(chests) do
         -- item is ingredient.type(string)
-        local enough, num = v.replica.container:Has(item, amount, true)
-        num_found = num_found + num
-
+        if v and v.replica and v.replica.container then
+            local enough, num = v.replica.container:Has(item, amount, true)
+            num_found = num_found + (num or 0)
+        end
     end
-    print("Item "..tostring(item)..",  found in "..#chests.." chests: "..num_found.."/"..amount)
+    -- 移除或减少print以提高性能
+    -- print("Item "..tostring(item)..",  found in "..#chests.." chests: "..num_found.."/"..amount)
     return num_found >= amount, num_found
-
 end
 
 local function HighlightContainer(v)
+    if not v or not v.components then
+        return
+    end
     if not v.components.highlight then
         v:AddComponent('highlight')
     end
-    table.insert(highlit, v)
-    v.components.highlight.ApplyColour = custom_ApplyColour
-    v.components.highlight.UnHighlight = custom_UnHighlight
-    v.components.highlight:Highlight(0, 0, 0)
+    if v.components.highlight then
+        table.insert(highlit, v)
+        v.components.highlight.ApplyColour = custom_ApplyColour
+        v.components.highlight.UnHighlight = custom_UnHighlight
+        v.components.highlight:Highlight(0, 0, 0)
+    end
 end
 
 local function unlightall()
+    if not highlit then
+        return
+    end
+    -- 创建一个临时表来存储所有需要处理的对象，避免在循环中修改表
+    local to_process = {}
     for k, v in pairs(highlit) do
-        if v and v.components and v.components.highlight then
+        table.insert(to_process, v)
+    end
+    -- 清空原始表以便重新填充
+    highlit = {}
+    
+    -- 处理所有对象
+    for _, v in ipairs(to_process) do
+        if v and v:IsValid() and v.components and v.components.highlight then
             if v.components.highlight.ApplyColour == custom_ApplyColour then
                 v.components.highlight.ApplyColour = nil
             end
@@ -166,7 +188,7 @@ do
             -- We will check if the remove param whole stack is true, then we will try to use lose item
             for i, chest in pairs(chests) do
                 local container = chest and chest.components and chest.components.container
-                if chest ~= overflow then
+                if chest ~= overflow and container and container.slots then
                     for k, v in pairs(container.slots) do
                         if v == item then
                             container.slots[k] = nil
@@ -174,7 +196,9 @@ do
                                 slot = k,
                                 prev_item = item
                             })
-                            item.components.inventoryitem:OnRemoved()
+                            if item.components and item.components.inventoryitem then
+                                item.components.inventoryitem:OnRemoved()
+                            end
                             item.prevslot = prevslot
                             item.prevcontainer = container
                             return item
@@ -200,9 +224,10 @@ do
             -- a. 首先，调用原始的 Has 函数，获取角色自身（包括背包和已打开容器）的物品数量
             local has_enough, num_found = oldHas(inst, item, amount, checkallcontainers)
 
-            print("Inventory:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
-                      tostring(IsClient) .. ":Has called <|" .. tostring(item) .. "|> amount [" .. tostring(amount) ..
-                      "]" .. " number found [" .. tostring(num_found) .. "]")
+            -- 调试信息，发布版本可以注释掉
+        -- print("Inventory:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
+        --               tostring(IsClient) .. ":Has called <|" .. tostring(item) .. "|> amount [" .. tostring(amount) ..
+        --               "]" .. " number found [" .. tostring(num_found) .. "]")
 
             -- b. 如果原始检查已经满足数量，或者不需要检查，就直接返回，节省性能
             if has_enough then
@@ -220,9 +245,10 @@ do
             -- 这里的 self.inst 就是 inventory 组件的拥有者，即玩家实例
             local enough_in_containers, num_in_containers = HasInContainers(self.inst, item, left)
 
-            print("Inventory:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
-                      tostring(IsClient) .. ":Found <|" .. tostring(item) .. "|> in CHEST " .. " number found [" ..
-                      tostring(num_in_containers) .. "]")
+            -- 调试信息，发布版本可以注释掉
+        -- print("Inventory:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
+        --               tostring(IsClient) .. ":Found <|" .. tostring(item) .. "|> in CHEST " .. " number found [" ..
+        --               tostring(num_in_containers) .. "]")
 
             -- e. 将两部分结果合并
             local total_found = num_found + num_in_containers
@@ -243,9 +269,10 @@ do
         self.Has = function(inst, item, amount, checkallcontainers)
             -- a. 首先，调用原始的 Has 函数，获取角色自身（包括背包和已打开容器）的物品数量
             local has_enough, num_found = oldHas(inst, item, amount, checkallcontainers)
-            print("InventoryReplica:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
-                      tostring(IsClient) .. ":Has called <|" .. tostring(item) .. "|> amount [" .. tostring(amount) ..
-                      "]" .. " number found [" .. tostring(num_found) .. "]")
+            -- 调试信息，发布版本可以注释掉
+        -- print("InventoryReplica:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
+        --               tostring(IsClient) .. ":Has called <|" .. tostring(item) .. "|> amount [" .. tostring(amount) ..
+        --               "]" .. " number found [" .. tostring(num_found) .. "]")
 
             -- b. 如果原始检查已经满足数量，或者不需要检查，就直接返回，节省性能
             if has_enough then
@@ -263,9 +290,10 @@ do
             -- 这里的 self.inst 就是 inventory 组件的拥有者，即玩家实例
             local enough_in_containers, num_in_containers = HasInContainers(self.inst, item, left)
 
-            print("InventoryReplica:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
-                      tostring(IsClient) .. ":Found <|" .. tostring(item) .. "|> in CHEST " .. " number found [" ..
-                      tostring(num_in_containers) .. "]")
+            -- 调试信息，发布版本可以注释掉
+        -- print("InventoryReplica:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
+        --               tostring(IsClient) .. ":Found <|" .. tostring(item) .. "|> in CHEST " .. " number found [" ..
+        --               tostring(num_in_containers) .. "]")
 
             -- e. 将两部分结果合并
             local total_found = num_found + num_in_containers
@@ -369,9 +397,10 @@ do
 
     function Builder:BufferBuild(recname)
         local recipe = _G.GetValidRecipe(recname)
-        print("Buffer build for "..recname .. ' '..'Has Ingredients '..tostring(self:HasIngredients(recipe)))
-        buffer_build(self,recname)
-        print("success "..tostring(success).." fault "..tostring(fault))
+        -- 调试信息，发布版本可以注释掉
+        -- print("Buffer build for "..recname .. ' '..'Has Ingredients '..tostring(self:HasIngredients(recipe)))
+        local success, fault = buffer_build(self,recname)
+        -- print("success "..tostring(success).." fault "..tostring(fault))
     end
 
     local InventoryItemReplica = _G.require "components/inventoryitem_replica"
@@ -430,7 +459,7 @@ do
                 HighlightForIngredients(recipe.ingredients, chests)
             end
         else
-            print "No recipes found"
+            -- print "No recipes found"
         end
 
         return ori_on_gain_focus(self)
@@ -478,7 +507,7 @@ do
     -- unlight when deselect all
     function TabGroup:DeselectAll(...)
         ori_deselect_all(self, ...)
-        print("unlight from DeselectAll")
+        -- print("unlight from DeselectAll")
         unlightall()
     end
 
@@ -493,12 +522,15 @@ local ThePlayer = _G.ThePlayer
 
 -- may cause bug by item.replica is nil. It happens when item is given by some NPC? I don't know really. But it may work now.
 local function Count(item)
-    if item.replica and item.replica.stackable then
-        return item.replica.stackable ~= nil and item.replica.stackable:StackSize() or 1
-    elseif item.components and item.components.stackable then
-        return item.components.stackable ~= nil and item.components.stackable:StackSize() or 1
-    else
+    if not item then
         return 0
+    end
+    if item.replica and item.replica.stackable then
+        return item.replica.stackable:StackSize() or 1
+    elseif item.components and item.components.stackable then
+        return item.components.stackable:StackSize() or 1
+    else
+        return 1
     end
 end
 
@@ -506,26 +538,45 @@ end
 
 -- ---update sigle data
 local function ItemGet(inst, data)
+    -- 添加完整的空值检查
+    if not inst or not inst.components or not data or not data.item then
+        return
+    end
+    
     local container = inst.components.container
-    if container and data then
-        if container:IsEmpty() then
+    if not container or not container.slots then
+        if inst._item_str then
             inst._item_str:set("")
-            return
         end
-
-        local item = 0
-
-        item = Count(data.item)
-
-        for k, v in pairs(container.slots) do
-            if v.prefab == data.item.prefab then
-                item = item + Count(v)
-            end
+        return
+    end
+    
+    if container:IsEmpty() then
+        if inst._item_str then
+            inst._item_str:set("")
         end
-        local result = tostring(data.item.prefab) .. " " .. item
-        -- for k,v in pairs(items)do
-        --     result = result.." "..k.." "..v
-        -- end
+        return
+    end
+
+    -- 确保data.item有prefab属性
+    if not data.item.prefab then
+        return
+    end
+
+    local item_count = 0
+    local target_prefab = data.item.prefab
+
+    -- 计算目标物品的数量
+    for k, v in pairs(container.slots) do
+        if v and v.prefab == target_prefab then
+            item_count = item_count + Count(v)
+        end
+    end
+    
+    -- 构建结果字符串
+    local result = tostring(target_prefab) .. " " .. item_count
+    
+    if inst._item_str then
         inst._item_str:set(result)
 
         -- print("Send msg "..result)
@@ -533,26 +584,45 @@ local function ItemGet(inst, data)
 end
 
 local function ItemLose(inst, data)
+    -- 添加完整的空值检查
+    if not inst or not inst.components or not data or not data.prev_item then
+        return
+    end
+    
     local container = inst.components.container
-    if container and data then
-        if container:IsEmpty() then
+    if not container or not container.slots then
+        if inst._item_str then
             inst._item_str:set("")
-            return
         end
-
-        local item = 0
-
-        -- item = Count(data.prev_item)
-
-        for k, v in pairs(container.slots) do
-            if v.prefab == data.prev_item.prefab then
-                item = item + Count(v)
-            end
+        return
+    end
+    
+    if container:IsEmpty() then
+        if inst._item_str then
+            inst._item_str:set("")
         end
-        local result = tostring(data.prev_item.prefab) .. " " .. item
-        -- for k,v in pairs(items)do
-        --     result = result.." "..k.." "..v
-        -- end
+        return
+    end
+
+    -- 确保data.prev_item有prefab属性
+    if not data.prev_item.prefab then
+        return
+    end
+
+    local item_count = 0
+    local target_prefab = data.prev_item.prefab
+
+    -- 计算剩余物品的数量
+    for k, v in pairs(container.slots) do
+        if v and v.prefab == target_prefab then
+            item_count = item_count + Count(v)
+        end
+    end
+    
+    -- 构建结果字符串
+    local result = tostring(target_prefab) .. " " .. item_count
+    
+    if inst._item_str then
         inst._item_str:set(result)
 
         -- print("Send msg "..result)
@@ -560,41 +630,66 @@ local function ItemLose(inst, data)
 end
 
 local function UpdateContainerAll(inst)
-    local container = inst.components.container
-    if container then
+        if not inst or not inst.components then
+            return
+        end
+        local container = inst.components.container
+        if not container or not container.slots then
+            if inst._item_str then
+                inst._item_str:set("")
+            end
+            return
+        end
+        
         if container:IsEmpty() then
-            inst._item_str:set("")
+            if inst._item_str then
+                inst._item_str:set("")
+            end
             return
         end
 
         local items = {}
 
         for k, v in pairs(container.slots) do
-            if items[tostring(v.prefab)] then
-                items[tostring(v.prefab)] = items[tostring(v.prefab)] + Count(v)
-            else
-                items[tostring(v.prefab)] = Count(v)
-            end
-            if v.components and v.components.unwrappable and v.components.unwrappable.itemdata then
-                local itemdata = v.components.unwrappable.itemdata
-                for k, v in pairs(itemdata) do
-                    if items[tostring(v.prefab)] then
-                        items[tostring(v.prefab)] = items[tostring(v.prefab)] + (Count(v) or 0)
-                    else
-                        items[tostring(v.prefab)] = Count(v)
+            if v and v.prefab then
+                local prefab_str = tostring(v.prefab)
+                local count = Count(v)
+                if items[prefab_str] then
+                    items[prefab_str] = items[prefab_str] + count
+                else
+                    items[prefab_str] = count
+                end
+                
+                -- 处理可包装物品
+                if v.components and v.components.unwrappable and v.components.unwrappable.itemdata then
+                    local itemdata = v.components.unwrappable.itemdata
+                    if itemdata and type(itemdata) == "table" then
+                        for _, wrapped_item in pairs(itemdata) do
+                            if wrapped_item and wrapped_item.prefab then
+                                local wrapped_prefab = tostring(wrapped_item.prefab)
+                                local wrapped_count = Count(wrapped_item)
+                                if items[wrapped_prefab] then
+                                    items[wrapped_prefab] = items[wrapped_prefab] + wrapped_count
+                                else
+                                    items[wrapped_prefab] = wrapped_count
+                                end
+                            end
+                        end
                     end
                 end
             end
         end
+        
+        -- 构建结果字符串
         local result = ""
         for k, v in pairs(items) do
             result = result .. " " .. k .. " " .. v
         end
-        inst._item_str:set(result)
-
-        -- print("Send msg "..result)
+        
+        if inst._item_str then
+            inst._item_str:set(result)
+        end
     end
-end
 
 -- called by client
 local function OnContainerDirty(inst)
@@ -610,45 +705,69 @@ local function OnContainerDirty(inst)
         meatballs 5 seeds 6 log 7
     --]]
     for k, v in string.gmatch(str, "(%a+) (%d+)") do
+        local num = tonumber(v) or 0
         if inst.buffered_items[k] then
-            inst.buffered_items[k] = inst.buffered_items[k] + v
+            inst.buffered_items[k] = (tonumber(inst.buffered_items[k]) or 0) + num
         else
-            inst.buffered_items[k] = v
+            inst.buffered_items[k] = num
         end
     end
 end
 
 AddClassPostConstruct("components/container_replica", function(self)
+    if not self or not self.inst then
+        return
+    end
+    
     local inst = self.inst
-    inst._item_str = _G.net_string(inst.GUID, "builditremote_item_str", "on_container_dirty")
+    
+    -- 安全地创建网络变量
+    if _G.net_string then
+        inst._item_str = _G.net_string(inst.GUID, "builditremote_item_str", "on_container_dirty")
+    end
+    
     inst.buffered_items = {}
+    
     if IsClient then
-        inst:ListenForEvent("on_container_dirty", OnContainerDirty)
+        -- 安全地添加事件监听
+        if inst._item_str then
+            inst:ListenForEvent("on_container_dirty", OnContainerDirty)
+        end
+        
+        -- 安全地覆盖Has函数
         local ori_has = self.Has
-        self.Has = function(self, prefab, amount)
-            if inst.buffered_items then
+        if ori_has then
+            self.Has = function(self_ref, prefab, amount)
+                if not self_ref or not inst.buffered_items then
+                    return false, 0
+                end
+                
                 local num_found = 0
                 for k, v in pairs(inst.buffered_items) do
                     -- both k and v are string i guess
                     if k == prefab then
-                        num_found = num_found + v
+                        num_found = num_found + (tonumber(v) or 0)
                     end
                 end
                 -- print("From buffered "..#inst.buffered_items.." has "..prefab.." "..num_found.."/"..amount)
+                
                 return num_found >= amount, num_found
-            else
-                return ori_has(inst, prefab, amount)
             end
         end
     end
 
-    if IsServer or IsDedicated then
+    if (IsServer or IsDedicated) and inst._item_str then
+        -- 安全地添加事件监听
         inst:ListenForEvent("onclose", UpdateContainerAll)
         inst:ListenForEvent("itemget", UpdateContainerAll)
         inst:ListenForEvent("itemlose", UpdateContainerAll)
         inst:ListenForEvent("stacksizechange", UpdateContainerAll)
-        inst:DoTaskInTime(0, function(inst)
-            UpdateContainerAll(inst)
+        
+        -- 安全地调度初始更新
+        inst:DoTaskInTime(0, function(inst_param)
+            if inst_param and inst_param:IsValid() then
+                UpdateContainerAll(inst_param)
+            end
         end)
     end
 
@@ -663,14 +782,16 @@ AddPlayerPostInit(function(inst)
     -- but actually no other will respond to this event I guess. So will it work fine?
 
     -- just refresh once
-    if number == 0 then
-        inst:DoPeriodicTask(.7, function()
-            -- print("refreshcrafting ing...")
-            inst:PushEvent("refreshcrafting")
+    -- 确保只在客户端执行周期性任务
+    if IsClient and inst == ThePlayer and number == 0 then
+        -- 增加检查以确保inst有效
+        inst:DoPeriodicTask(1.0, function(player_inst)
+            if player_inst and player_inst:IsValid() then
+                player_inst:PushEvent("refreshcrafting")
+            end
         end)
-
+        
         number = number + 1
     end
-
 end)
 
