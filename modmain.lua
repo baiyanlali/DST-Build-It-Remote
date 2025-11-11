@@ -6,6 +6,7 @@ local tonumber = GLOBAL.tonumber
 
 local MAX_SEARCH_RANGE = GetModConfigData("MAX_RANGE")
 local REFRESH_TIME = GetModConfigData("REFRESH_TIME")
+local KEEP_ONE = GetModConfigData("KEEP_ONE")
 -- local MAX_SEARCH_RANGE = 10
 
 local IsServer = TheNet:GetIsServer()
@@ -366,11 +367,48 @@ do
             local chest = chest_inst.components.container
             -- print("Chest "..tostring(chest))
             if chest and chest ~= overflow and not chest.excludefromcrafting then
-                for k, v in pairs(chest:GetCraftingIngredient(item, amount - total_num_found, true)) do
-                    ingredients[k] = v
-                    total_num_found = total_num_found + v
-                    if total_num_found >= amount then
-                        return ingredients
+                -- 当KEEP_ONE为true时，保留每种材料的最后一个
+                if KEEP_ONE then
+                    -- 先计算箱子中每种材料的总数量
+                    local item_counts = {}
+                    for slot, slot_item in pairs(chest.slots) do
+                        if slot_item and slot_item.prefab == item then
+                            local count = Count(slot_item)
+                            item_counts[slot] = count
+                        end
+                    end
+                    
+                    -- 计算可以使用的数量（总数量 - 保留的1个）
+                    local total_available = 0
+                    for slot, count in pairs(item_counts) do
+                        total_available = total_available + count
+                    end
+                    
+                    local usable_amount = math.max(0, total_available - 1)
+                    local needed_amount = amount - total_num_found
+                    local take_amount = math.min(usable_amount, needed_amount)
+                    
+                    -- 调试信息
+                    -- print("KEEP_ONE功能: 材料"..item.." 总可用:"..total_available.." 可用数量:"..usable_amount.." 需要数量:"..needed_amount.." 实际获取:"..take_amount)
+                    
+                    if take_amount > 0 then
+                        -- 从箱子中获取指定数量的材料，但保留一个
+                        for k, v in pairs(chest:GetCraftingIngredient(item, take_amount, true)) do
+                            ingredients[k] = v
+                            total_num_found = total_num_found + v
+                            if total_num_found >= amount then
+                                return ingredients
+                            end
+                        end
+                    end
+                else
+                    -- 原始逻辑，不保留材料
+                    for k, v in pairs(chest:GetCraftingIngredient(item, amount - total_num_found, true)) do
+                        ingredients[k] = v
+                        total_num_found = total_num_found + v
+                        if total_num_found >= amount then
+                            return ingredients
+                        end
                     end
                 end
             end
