@@ -2,10 +2,11 @@ local L = locale ~= "zh" and locale ~= "zhr" -- true 英文  false 中文
 local Loc = function(eng, chi) return L and eng or chi end
 
 
-version = '1.3.8'
+version = '1.3.9'
 local log = {
     "v1.3.7 更新：减少了网络带宽的占用和服务器的性能消耗。",
     "v1.3.8 更新：通过引入缓存来解决服务器卡顿问题。",
+    "v1.3.8 更新：通过引入缓存刷新时间来优化性能。",
 }
 
 local function updateLog()
@@ -44,6 +45,17 @@ configuration_options = {
             { description = "10", data = 10 },
             { description = "30", data = 30 },
             { description = "50", data = 50 },
+        },
+        default = 5
+    },
+    {
+        name ="REFRESH_TIME",
+        label = Loc("Refresh Time","刷新时间"),
+        options = {
+            { description = "0.5", data = 0.5 },
+            { description = "1", data = 1 },
+            { description = "3", data = 3 },
+            { description = "5", data = 5 },
         },
         default = 5
     }

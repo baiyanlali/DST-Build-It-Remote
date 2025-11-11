@@ -3,6 +3,7 @@ local TheSim = _G.TheSim
 local TheNet = _G.TheNet
 
 local MAX_SEARCH_RANGE = GetModConfigData("MAX_RANGE")
+local REFRESH_TIME = GetModConfigData("REFRESH_TIME")
 -- local MAX_SEARCH_RANGE = 10
 
 local IsServer = TheNet:GetIsServer()
@@ -11,6 +12,7 @@ local IsClient = TheNet:GetIsClient()
 
 local Inventory = _G.require "components/inventory"
 local InventoryReplica = _G.require "components/inventory_replica"
+local InventoryClassified = _G.require "prefabs/inventory_classified"
 
 local Highlight = _G.require 'components/highlight'
 local __Highlight_ApplyColour = Highlight.ApplyColour
@@ -62,10 +64,10 @@ end
 local cache_chests = {}
 
 AddSimPostInit(function()
-    GLOBAL.TheWorld:DoPeriodicTask(0.5, function()
+    GLOBAL.TheWorld:DoPeriodicTask(REFRESH_TIME, function()
         cache_chests = {}
         -- print("clear cache!")
-      end)
+    end)
 end)
 
 local loCount = 0
@@ -85,9 +87,9 @@ local function GetSurroundingContainers(inst)
         end
     end
     cache_chests[inst] = chests
-    -- print("Found "..#chests.." chests " .. loCount)
+    print("Found "..#chests.." chests " .. loCount)
     loCount = loCount + 1
-    loCount = loCount % 300
+    -- loCount = loCount % 300
     return chests
 end
 
@@ -101,7 +103,7 @@ function HasInContainers(inst, item, amount)
         num_found = num_found + num
 
     end
-    -- print("Item "..tostring(item)..",  found."..num_found.."/"..amount)
+    print("Item "..tostring(item)..",  found in "..#chests.." chests: "..num_found.."/"..amount)
     return num_found >= amount, num_found
 
 end
@@ -137,8 +139,9 @@ end
 -----------------------------------------------------------------
 do
 
-    local ori_has = Inventory.Has
-    local ori_has_replica = InventoryReplica.Has
+    -- local ori_has = Inventory.Has
+    -- local ori_has_replica = InventoryReplica.Has
+    -- local ori_has_classified = InventoryClassified.Has
     local ori_get_crafting_ingredient = Inventory.GetCraftingIngredient
     local ori_get_crafting_ingredient_replica = InventoryReplica.GetCraftingIngredient
     local ori_remove_item = Inventory.RemoveItem
@@ -185,34 +188,132 @@ do
         return item
 
     end
-    function Inventory:Has(item, amount, checkallcontainers, fromReplica)
-        -- if the inventory is called by replica, then it should not recalculate the resource again
-        if fromReplica then
-            return ori_has(self, item, amount, false)
-        else
-            local _, num = ori_has(self, item, amount, false)
-            local left = amount - num
-            local enough, num_container = HasInContainers(self.inst, item, left)
-            return enough, num_container + num
+
+    AddComponentPostInit("inventory", function(self)
+        -- 1. 保存原始的 Has 函数
+        local oldHas = self.Has
+
+        -- TheWorld.DebugMessage("add post init inventory")
+
+        -- 2. 定义我们新的、增强版的 Has 函数
+        self.Has = function(inst, item, amount, checkallcontainers)
+            -- a. 首先，调用原始的 Has 函数，获取角色自身（包括背包和已打开容器）的物品数量
+            local has_enough, num_found = oldHas(inst, item, amount, checkallcontainers)
+
+            print("Inventory:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
+                      tostring(IsClient) .. ":Has called <|" .. tostring(item) .. "|> amount [" .. tostring(amount) ..
+                      "]" .. " number found [" .. tostring(num_found) .. "]")
+
+            -- b. 如果原始检查已经满足数量，或者不需要检查，就直接返回，节省性能
+            if has_enough then
+                return true, num_found
+            end
+
+            -- c. 如果数量不够，计算还差多少
+            local left = amount - num_found
+            if left <= 0 then
+                -- 理论上不会进入这里，因为上面有 has_enough 判断，但作为安全校验
+                return true, num_found
+            end
+
+            -- d. 调用你写好的函数，检查周边容器
+            -- 这里的 self.inst 就是 inventory 组件的拥有者，即玩家实例
+            local enough_in_containers, num_in_containers = HasInContainers(self.inst, item, left)
+
+            print("Inventory:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
+                      tostring(IsClient) .. ":Found <|" .. tostring(item) .. "|> in CHEST " .. " number found [" ..
+                      tostring(num_in_containers) .. "]")
+
+            -- e. 将两部分结果合并
+            local total_found = num_found + num_in_containers
+
+            -- f. 返回最终的、合并后的结果
+            return total_found >= amount, total_found
         end
-    end
 
-    function InventoryReplica:Has(item, amount, checkallcontainers)
-        local enough, num
-        if self.inst.components.inventory ~= nil then
-            enough, num = self.inst.components.inventory:Has(item, amount, false, true)
-        elseif self.classified ~= nil then
-            enough, num = self.classified:Has(item, amount, false)
-        else
-            enough, num = amount <= 0, 0
+    end)
+
+    AddClassPostConstruct("components/inventory_replica", function(self)
+        -- 1. 保存原始的 Has 函数
+        local oldHas = self.Has
+
+        -- TheWorld.DebugMessage("add post init inventory")
+
+        -- 2. 定义我们新的、增强版的 Has 函数
+        self.Has = function(inst, item, amount, checkallcontainers)
+            -- a. 首先，调用原始的 Has 函数，获取角色自身（包括背包和已打开容器）的物品数量
+            local has_enough, num_found = oldHas(inst, item, amount, checkallcontainers)
+            print("InventoryReplica:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
+                      tostring(IsClient) .. ":Has called <|" .. tostring(item) .. "|> amount [" .. tostring(amount) ..
+                      "]" .. " number found [" .. tostring(num_found) .. "]")
+
+            -- b. 如果原始检查已经满足数量，或者不需要检查，就直接返回，节省性能
+            if has_enough then
+                return true, num_found
+            end
+
+            -- c. 如果数量不够，计算还差多少
+            local left = amount - num_found
+            if left <= 0 then
+                -- 理论上不会进入这里，因为上面有 has_enough 判断，但作为安全校验
+                return true, num_found
+            end
+
+            -- d. 调用你写好的函数，检查周边容器
+            -- 这里的 self.inst 就是 inventory 组件的拥有者，即玩家实例
+            local enough_in_containers, num_in_containers = HasInContainers(self.inst, item, left)
+
+            print("InventoryReplica:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
+                      tostring(IsClient) .. ":Found <|" .. tostring(item) .. "|> in CHEST " .. " number found [" ..
+                      tostring(num_in_containers) .. "]")
+
+            -- e. 将两部分结果合并
+            local total_found = num_found + num_in_containers
+
+            -- f. 返回最终的、合并后的结果
+            return total_found >= amount, total_found
         end
-        -- local _, num = ori_has_replica(self, item, amount, false, true)
 
-        local left = amount - num
-        local enough, num_container = HasInContainers(self.inst, item, left)
+    end)
 
-        return enough, num_container + num
-    end
+    -- function Inventory:Has(item, amount, checkallcontainers, fromReplica)
+    --     -- if the inventory is called by replica, then it should not recalculate the resource again
+    --     print("Inventory:Has called "..tostring(fromReplica).." item "..tostring(item).." amount "..tostring(amount).." checkallcontainers "..tostring(checkallcontainers))
+    --     if fromReplica then
+    --         return ori_has(self, item, amount, false)
+    --     else
+    --         local _, num = ori_has(self, item, amount, false)
+    --         local left = amount - num
+    --         local enough, num_container = HasInContainers(self.inst, item, left)
+    --         return enough, num_container + num
+    --     end
+    -- end
+
+
+    -- function InventoryReplica:Has(item, amount, checkallcontainers)
+    --     print("InventoryReplica:".."(S):"..tostring(IsServer).."(D):"..tostring(IsDedicated).."(C):"..tostring(IsClient)..":Has called ".." item "..tostring(item).." amount "..tostring(amount).." checkallcontainers "..tostring(checkallcontainers))
+
+    --     local enough, num
+    --     if self.inst.components.inventory ~= nil then
+    --         print("InventoryReplica: Fetch comp from inventory")
+    --         enough, num = self.inst.components.inventory:Has(item, amount, false, true)
+    --     elseif self.classified ~= nil then
+    --         print("InventoryReplica: Fetch comp from classified")
+    --         enough, num = self.classified:Has(item, amount, false)
+    --     else
+    --         print("InventoryReplica: Fetch comp from nothing")
+    --         enough, num = amount <= 0, 0
+    --     end
+
+    --     print("InventoryReplica:Has called ".." item "..item.." Current Number:"..num..". Is ENOUGH:"..tostring(enough))
+    --     -- local _, num = ori_has_replica(self, item, amount, false, true)
+
+    --     local left = amount - num
+    --     local enough, num_container = HasInContainers(self.inst, item, left)
+    --     print("InventoryReplica:Has(HasInContainers) called ".." item "..item.." Current Number:"..num_container..". Is ENOUGH:"..tostring(enough))
+
+    --     return enough, num_container + num
+    -- end
 
     -- can only call from server
     function Inventory:GetCraftingIngredient(item, amount)
@@ -257,21 +358,21 @@ do
         return ori_get_ingredients(self, recname)
     end
 
-    -- local make_recipe = Builder.MakeRecipe
-    -- function Builder:MakeRecipe(recipe, pt, rot, skin, onsuccess)
-    --     local result = make_recipe(self,recipe,pt,rot,skin,onsuccess)
-    --     -- print("Result is "..tostring(result))
-    -- end
+    local make_recipe = Builder.MakeRecipe
+    function Builder:MakeRecipe(recipe, pt, rot, skin, onsuccess)
+        local result = make_recipe(self,recipe,pt,rot,skin,onsuccess)
+        -- print("Result is "..tostring(result))
+    end
 
-    -- local do_build = Builder.DoBuild
-    -- local buffer_build = Builder.BufferBuild
+    local do_build = Builder.DoBuild
+    local buffer_build = Builder.BufferBuild
 
-    -- function Builder:BufferBuild(recname)
-    --     local recipe = _G.GetValidRecipe(recname)
-    --     print("Buffer build for "..recname .. ' '..'Has Ingredients '..tostring(self:HasIngredients(recipe)))
-    --     buffer_build(self,recname)
-    --     print("success "..tostring(success).." fault "..tostring(fault))
-    -- end
+    function Builder:BufferBuild(recname)
+        local recipe = _G.GetValidRecipe(recname)
+        print("Buffer build for "..recname .. ' '..'Has Ingredients '..tostring(self:HasIngredients(recipe)))
+        buffer_build(self,recname)
+        print("success "..tostring(success).." fault "..tostring(fault))
+    end
 
     local InventoryItemReplica = _G.require "components/inventoryitem_replica"
     local ori_set_pickup_pos = InventoryItemReplica.SetPickupPos
@@ -382,9 +483,11 @@ do
     end
 
 end
+
 -----------------------------------------------------------------
 ---DST Network Related The Most Difficult Part
 -----------------------------------------------------------------
+
 local ContainerReplica = require "components/container_replica"
 local ThePlayer = _G.ThePlayer
 
@@ -399,9 +502,9 @@ local function Count(item)
     end
 end
 
--- called by server
+-- -- called by server
 
----update sigle data
+-- ---update sigle data
 local function ItemGet(inst, data)
     local container = inst.components.container
     if container and data then
@@ -539,10 +642,10 @@ AddClassPostConstruct("components/container_replica", function(self)
         end
     end
 
-    if IsServer then
+    if IsServer or IsDedicated then
         inst:ListenForEvent("onclose", UpdateContainerAll)
-        inst:ListenForEvent("itemget", ItemGet)
-        inst:ListenForEvent("itemlose", ItemLose)
+        inst:ListenForEvent("itemget", UpdateContainerAll)
+        inst:ListenForEvent("itemlose", UpdateContainerAll)
         inst:ListenForEvent("stacksizechange", UpdateContainerAll)
         inst:DoTaskInTime(0, function(inst)
             UpdateContainerAll(inst)
@@ -571,12 +674,3 @@ AddPlayerPostInit(function(inst)
 
 end)
 
--- AddSimPostInit(function(inst)
---     inst:DoPeriodicTask(.9, function()
---         cache_chests = {}
---     end)
--- end)
-
--- TheWorld:DoPeriodicTask(.9, function()
---     cache_chests = {}
--- end)
