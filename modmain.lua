@@ -403,7 +403,7 @@ do
                     local take_amount = math.min(usable_amount, needed_amount)
                     
                     -- 调试信息
-                    -- print("KEEP_ONE功能: 材料"..item.." 总可用:"..total_available.." 可用数量:"..usable_amount.." 需要数量:"..needed_amount.." 实际获取:"..take_amount)
+                    print("KEEP_ONE功能: 材料"..item.." 总可用:"..total_available.." 可用数量:"..usable_amount.." 需要数量:"..needed_amount.." 实际获取:"..take_amount)
                     
                     if take_amount > 0 then
                         -- 从箱子中获取指定数量的材料，但保留一个
@@ -788,7 +788,11 @@ AddClassPostConstruct("components/container_replica", function(self)
                 for k, v in pairs(inst.buffered_items) do
                     -- both k and v are string i guess
                     if k == prefab then
-                        num_found = num_found + (tonumber(v) or 0)
+                        if KEEP_ONE then
+                            num_found = num_found + math.min(0, (tonumber(v) or 0) - 1)
+                        else
+                            num_found = num_found + (tonumber(v) or 0)
+                        end 
                     end
                 end
                 -- print("From buffered "..#inst.buffered_items.." has "..prefab.." "..num_found.."/"..amount)
