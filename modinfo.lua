@@ -2,14 +2,14 @@ local L = locale ~= "zh" and locale ~= "zhr" -- true 英文  false 中文
 local Loc = function(eng, chi) return L and eng or chi end
 
 
-version = '1.3.10'
+version = '1.3.11'
 local log = {
     Loc("v1.3.7 Update: Reduce network bandwidth consumption and server performance consumption.","v1.3.7 更新：减少了网络带宽的占用和服务器的性能消耗。"),
     Loc("v1.3.8 Update: Solve server lag problem by introducing cache.","v1.3.8 更新：通过引入缓存来解决服务器卡顿问题。"),
     Loc("v1.3.8 Update: Optimize performance by introducing cache refresh time.","v1.3.8 更新：通过引入缓存刷新时间来优化性能。"),
     Loc("v1.3.9 Update: Fix some bugs.","v1.3.9 更新：修复了一些bug。"),
     Loc("v1.3.10 Update: Optimize performance, reduce the possibility of crash caused by nil value.","v1.3.10 更新：优化了性能，减少了可能因为空值导致的闪退。"),
-    -- Loc("v1.3.11 Update: Add option to keep one material.","v1.3.11 更新：增加材料保留一个的选项。"),
+    Loc("v1.3.11 Update: Fix nil value crash.","v1.3.11 更新：修复空值造成的崩溃问题。"),
 }
 
 local function updateLog()

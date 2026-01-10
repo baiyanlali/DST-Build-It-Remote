@@ -180,6 +180,11 @@ do
             return return_item
         end
 
+        -- V1.3.11 Fix nil value crash
+        if item == nil then
+            return nil
+        end
+
         local chests = GetSurroundingContainers(self.inst)
         local overflow = self:GetOverflowContainer()
 
