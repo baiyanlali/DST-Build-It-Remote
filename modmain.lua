@@ -321,44 +321,7 @@ do
 
     end)
 
-    -- function Inventory:Has(item, amount, checkallcontainers, fromReplica)
-    --     -- if the inventory is called by replica, then it should not recalculate the resource again
-    --     print("Inventory:Has called "..tostring(fromReplica).." item "..tostring(item).." amount "..tostring(amount).." checkallcontainers "..tostring(checkallcontainers))
-    --     if fromReplica then
-    --         return ori_has(self, item, amount, false)
-    --     else
-    --         local _, num = ori_has(self, item, amount, false)
-    --         local left = amount - num
-    --         local enough, num_container = HasInContainers(self.inst, item, left)
-    --         return enough, num_container + num
-    --     end
-    -- end
 
-
-    -- function InventoryReplica:Has(item, amount, checkallcontainers)
-    --     print("InventoryReplica:".."(S):"..tostring(IsServer).."(D):"..tostring(IsDedicated).."(C):"..tostring(IsClient)..":Has called ".." item "..tostring(item).." amount "..tostring(amount).." checkallcontainers "..tostring(checkallcontainers))
-
-    --     local enough, num
-    --     if self.inst.components.inventory ~= nil then
-    --         print("InventoryReplica: Fetch comp from inventory")
-    --         enough, num = self.inst.components.inventory:Has(item, amount, false, true)
-    --     elseif self.classified ~= nil then
-    --         print("InventoryReplica: Fetch comp from classified")
-    --         enough, num = self.classified:Has(item, amount, false)
-    --     else
-    --         print("InventoryReplica: Fetch comp from nothing")
-    --         enough, num = amount <= 0, 0
-    --     end
-
-    --     print("InventoryReplica:Has called ".." item "..item.." Current Number:"..num..". Is ENOUGH:"..tostring(enough))
-    --     -- local _, num = ori_has_replica(self, item, amount, false, true)
-
-    --     local left = amount - num
-    --     local enough, num_container = HasInContainers(self.inst, item, left)
-    --     print("InventoryReplica:Has(HasInContainers) called ".." item "..item.." Current Number:"..num_container..". Is ENOUGH:"..tostring(enough))
-
-    --     return enough, num_container + num
-    -- end
 
     -- can only call from server
     function Inventory:GetCraftingIngredient(item, amount)
@@ -381,96 +344,21 @@ do
             local chest = chest_inst.components.container
             -- print("Chest "..tostring(chest))
             if chest and chest ~= overflow and not chest.excludefromcrafting then
-                -- 当KEEP_ONE为true时，保留每种材料的最后一个
-                if KEEP_ONE then
-                    -- 先计算箱子中每种材料的总数量
-                    local item_counts = {}
-                    for slot, slot_item in pairs(chest.slots) do
-                        if slot_item and slot_item.prefab == item then
-                            local count = Count(slot_item)
-                            item_counts[slot] = count
-                        end
-                    end
-                    
-                    -- 计算可以使用的数量（总数量 - 保留的1个）
-                    local total_available = 0
-                    for slot, count in pairs(item_counts) do
-                        total_available = total_available + count
-                    end
-                    
-                    local usable_amount = math.max(0, total_available - 1)
-                    local needed_amount = amount - total_num_found
-                    local take_amount = math.min(usable_amount, needed_amount)
-                    
-                    -- 调试信息
-                    print("KEEP_ONE功能: 材料"..item.." 总可用:"..total_available.." 可用数量:"..usable_amount.." 需要数量:"..needed_amount.." 实际获取:"..take_amount)
-                    
-                    if take_amount > 0 then
-                        -- 从箱子中获取指定数量的材料，但保留一个
-                        for k, v in pairs(chest:GetCraftingIngredient(item, take_amount, true)) do
-                            ingredients[k] = v
-                            total_num_found = total_num_found + v
-                            if total_num_found >= amount then
-                                return ingredients
-                            end
-                        end
-                    end
-                else
-                    -- 原始逻辑，不保留材料
-                    for k, v in pairs(chest:GetCraftingIngredient(item, amount - total_num_found, true)) do
-                        ingredients[k] = v
-                        total_num_found = total_num_found + v
-                        if total_num_found >= amount then
-                            return ingredients
-                        end
+
+                -- 原始逻辑，不保留材料
+                for k, v in pairs(chest:GetCraftingIngredient(item, amount - total_num_found, true)) do
+                    ingredients[k] = v
+                    total_num_found = total_num_found + v
+                    if total_num_found >= amount then
+                        return ingredients
                     end
                 end
+                
             end
         end
 
         return ingredients
 
-    end
-    local BuilderReplica = _G.require "components/builder_replica"
-    local Builder = _G.require "components/builder"
-
-    local ori_get_ingredients = Builder.GetIngredients
-    function Builder:GetIngredients(recname)
-        -- print('Custom Builder:GetIngredients: ' .. recname)
-        return ori_get_ingredients(self, recname)
-    end
-
-    local make_recipe = Builder.MakeRecipe
-    function Builder:MakeRecipe(recipe, pt, rot, skin, onsuccess)
-        local result = make_recipe(self,recipe,pt,rot,skin,onsuccess)
-        -- print("Result is "..tostring(result))
-    end
-
-    local do_build = Builder.DoBuild
-    local buffer_build = Builder.BufferBuild
-
-    function Builder:BufferBuild(recname)
-        local recipe = _G.GetValidRecipe(recname)
-        -- 调试信息，发布版本可以注释掉
-        -- print("Buffer build for "..recname .. ' '..'Has Ingredients '..tostring(self:HasIngredients(recipe)))
-        local success, fault = buffer_build(self,recname)
-        -- print("success "..tostring(success).." fault "..tostring(fault))
-    end
-
-    local InventoryItemReplica = _G.require "components/inventoryitem_replica"
-    local ori_set_pickup_pos = InventoryItemReplica.SetPickupPos
-    function InventoryItemReplica:SetPickupPos(pos)
-        if not self.classified then
-            return
-        end
-        return ori_set_pickup_pos(self, pos)
-        -- if pos ~= nil then
-        --     self.classified.src_pos.isvalid:set(true)
-        --     self.classified.src_pos.x:set(pos.x)
-        --     self.classified.src_pos.z:set(pos.z)
-        -- else
-        --     self.classified.src_pos.isvalid:set(false)
-        -- end
     end
 
 end
