@@ -13,13 +13,18 @@ local IsServer = TheNet:GetIsServer()
 local IsDedicated = TheNet:IsDedicated()
 local IsClient = TheNet:GetIsClient()
 
-local Inventory = _G.require "components/inventory"
-local InventoryReplica = _G.require "components/inventory_replica"
-local InventoryClassified = _G.require "prefabs/inventory_classified"
 
 local Highlight = _G.require 'components/highlight'
 local __Highlight_ApplyColour = Highlight.ApplyColour
 local __Highlight_UnHighlight = Highlight.UnHighlight
+
+local DEBUG_MODE = false
+
+local function debug_print(msg)
+    if DEBUG_MODE then
+        print("[BuildItRemote] \n"..msg.."\n END")
+    end
+end
 
 local c = {
     r = .5,
@@ -190,6 +195,7 @@ do
             local iscrafting = checkallcontainers
             local has_enough, num_found = oldHas(self, item, amount, checkallcontainers)
 
+            
             if has_enough then
                 return true, num_found
             end
@@ -308,13 +314,19 @@ do
         self.Has = function (self, prefab, amount, checkallcontainers)
             local has_enough, num_found = oldHas(self, prefab, amount, checkallcontainers)
 
+            debug_print("Inventory Has: for " .. tostring(prefab) .. " #" .. tostring(amount))
+
             if has_enough then
+                debug_print("Inventory Has: already enough in other way " .. tostring(prefab) .. " #" .. tostring(amount))
                 return true, num_found
             end
 
             local chests = GetSurroundingContainers(self.inst)
             local overflow = self:GetOverflowContainer()
             local opencontainers = self.opencontainers
+
+            debug_print("Inventory Has: Now search for chests " .. tostring(prefab) .. " #" .. tostring(amount))
+                
 
             for i, chest in pairs(chests) do
 
@@ -325,12 +337,13 @@ do
                     if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
                         local container_enough, container_found = container:Has(prefab, amount, true)
                         num_found = num_found + (tonumber(container_found) or 0)
+                        debug_print("Search for " .. tostring(prefab) .." in chest ".. container.type .. ". And get " .. tostring(container_found))
                     end
                 end
                 
             end
             -- 移除或减少print以提高性能
-            -- print("Item "..tostring(item)..",  found in "..#chests.." chests: "..num_found.."/"..amount)
+            debug_print("Inventory Has: Item "..tostring(prefab)..",  found in "..#chests.." chests: "..num_found.."/"..amount)
             return num_found >= amount, num_found
         end
 
@@ -436,6 +449,7 @@ end
 
 local ContainerReplica = require "components/container_replica"
 local ThePlayer = _G.ThePlayer
+local number = 0
 
 
 
@@ -499,7 +513,8 @@ local function UpdateContainerAll(inst)
         for k, v in pairs(items) do
             result = result .. " " .. k .. " " .. v
         end
-        
+
+        debug_print("UpdateContainerAll, result of chest: \n"..result)
         if inst._item_str then
             inst._item_str:set(result)
         end
@@ -518,7 +533,7 @@ local function OnContainerDirty(inst)
     --[[
         meatballs 5 seeds 6 log 7
     --]]
-    for k, v in string.gmatch(str, "(%a+) (%d+)") do
+    for k, v in string.gmatch(str, "(%S+) (%d+)") do
         local num = tonumber(v) or 0
         if inst.buffered_items[k] then
             inst.buffered_items[k] = (tonumber(inst.buffered_items[k]) or 0) + num
@@ -552,18 +567,19 @@ AddClassPostConstruct("components/container_replica", function(self)
         local ori_has = self.Has
         if ori_has then
             self.Has = function(self_ref, prefab, amount)
-                if not self_ref or not inst.buffered_items then
+                if not self_ref or not self_ref.inst.buffered_items then
                     return false, 0
                 end
                 
                 local num_found = 0
-                for k, v in pairs(inst.buffered_items) do
+                for k, v in pairs(self_ref.inst.buffered_items) do
                     -- both k and v are string i guess
+                    debug_print("Check " .. k .. "(#" .. tostring(v)  .. ")==" .. prefab)
                     if k == prefab then
                         num_found = num_found + (tonumber(v) or 0)
                     end
                 end
-                -- print("From buffered "..#inst.buffered_items.." has "..prefab.." "..num_found.."/"..amount)
+                debug_print("From buffered has "..prefab.." "..num_found.."/"..amount)
                 
                 return num_found >= amount, num_found
             end
@@ -588,7 +604,6 @@ AddClassPostConstruct("components/container_replica", function(self)
     -- print("Construct container replica end")
 end)
 
-local number = 0
 
 AddPlayerPostInit(function(inst)
     -- sadly, in server there is no "ThePlayer"
