@@ -326,7 +326,7 @@ do
                     local container = chest and chest.replica and chest.replica.container or chest.replica.inventory
                     if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
                         local container_enough, container_found = container:Has(prefab, amount, true)
-                        num_found = num_found + (container_found or 0)
+                        num_found = num_found + (tonumber(container_found) or 0)
                     end
                 end
                 
