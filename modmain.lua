@@ -185,10 +185,10 @@ do
 
         local oldHas = self.Has
 
-        self.Has = function(item, amount, checkallcontainers)
+        self.Has = function(self, item, amount, checkallcontainers)
 
             local iscrafting = checkallcontainers
-            local has_enough, num_found = oldHas(item, amount, checkallcontainers)
+            local has_enough, num_found = oldHas(self, item, amount, checkallcontainers)
 
             if has_enough then
                 return true, num_found
@@ -217,14 +217,14 @@ do
 
         local oldRemoveItem = self.RemoveItem
 
-        self.RemoveItem = function(item, wholestack, checkallcontainers, keepoverstacked)
+        self.RemoveItem = function(self, item, wholestack, checkallcontainers, keepoverstacked)
 
             if item == nil then
                 return
             end
 
             -- print(">the removing item: a table "..tostring(item.prefab).." Whole stack "..tostring(wholestack))
-            local return_item = oldRemoveItem(item, wholestack, checkallcontainers, keepoverstacked)
+            local return_item = oldRemoveItem(self, item, wholestack, checkallcontainers, keepoverstacked)
 
             -- This happens when get an item from a stackable item, in other conditions the item value will not change
             if return_item ~= item then
@@ -259,9 +259,9 @@ do
 
         local oldGetCraftingIngredient = self.GetCraftingIngredient
 
-        self.GetCraftingIngredient = function (item, amount)
+        self.GetCraftingIngredient = function (self, item, amount)
             -- dict[item_inst, number]
-            local crafting_items = oldGetCraftingIngredient(item, amount)
+            local crafting_items = oldGetCraftingIngredient(self, item, amount)
 
             local total_num_found = 0
             for k, v in pairs(crafting_items) do
@@ -305,8 +305,8 @@ do
         
         local oldHas = self.Has
         
-        self.Has = function (prefab, amount, checkallcontainers)
-            local has_enough, num_found = oldHas(prefab, amount, checkallcontainers)
+        self.Has = function (self, prefab, amount, checkallcontainers)
+            local has_enough, num_found = oldHas(self, prefab, amount, checkallcontainers)
 
             if has_enough then
                 return true, num_found
@@ -316,14 +316,12 @@ do
             local overflow = self:GetOverflowContainer()
             local opencontainers = self.opencontainers
 
-            local num_found = 0
-
             for i, chest in pairs(chests) do
 
                 if opencontainers  and opencontainers[chest] then
                     -- 如果箱子已经被打开，则不做检测
                 else
-                    local container = chest and chest.replica and chest.replica.container or chest.replica.inventory
+                    local container = chest and chest.replica and chest.replica.container
                     if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
                         local container_enough, container_found = container:Has(prefab, amount, true)
                         num_found = num_found + (tonumber(container_found) or 0)
