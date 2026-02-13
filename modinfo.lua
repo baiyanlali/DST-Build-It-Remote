@@ -2,15 +2,16 @@ local L = locale ~= "zh" and locale ~= "zhr" -- true 英文  false 中文
 local Loc = function(eng, chi) return L and eng or chi end
 
 
-version = '1.3.12'
+version = '1.3.13'
 local log = {
     Loc("v1.3.7 Update: Reduce network bandwidth consumption and server performance consumption.","v1.3.7 更新：减少了网络带宽的占用和服务器的性能消耗。"),
     Loc("v1.3.8 Update: Solve server lag problem by introducing cache.","v1.3.8 更新：通过引入缓存来解决服务器卡顿问题。"),
     Loc("v1.3.8 Update: Optimize performance by introducing cache refresh time.","v1.3.8 更新：通过引入缓存刷新时间来优化性能。"),
     Loc("v1.3.9 Update: Fix some bugs.","v1.3.9 更新：修复了一些bug。"),
     Loc("v1.3.10 Update: Optimize performance, reduce the possibility of crash caused by nil value.","v1.3.10 更新：优化了性能，减少了可能因为空值导致的闪退。"),
-    Loc("v1.3.11 Update: Add option to keep one material.","v1.3.11 更新：增加材料保留一个的选项。"),
+    Loc("v1.3.11 Update: Add option to keep one material (not available now).","v1.3.11 更新：增加材料保留一个的选项（暂不可用）。"),
     Loc("v1.3.12 Update:  Rewrite logic codes.","v1.3.12 更新：重写部分代码，希望运行能更稳定。"),
+    Loc("v1.3.13 Update:  Fix bug that some ingredients can not be found.","v1.3.12 更新：修复部分物体查找不到的 bug。"),
 }
 
 local function updateLog()
@@ -65,7 +66,7 @@ configuration_options = {
     },
     {
         name ="KEEP_ONE",
-        label = Loc("Keep One Material","保留一个材料"),
+        label = Loc("Keep One Material(not available)","保留一个材料(暂不可用)"),
         options = {
             { description = Loc("No","否"), data = false },
             { description = Loc("Yes","是"), data = true },
