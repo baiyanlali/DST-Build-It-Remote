@@ -173,193 +173,170 @@ local function unlightall()
     end
 end
 
+
 -----------------------------------------------------------------
 -- REMAKE SOME FUNCTIONS IN INGREDIENT
 -----------------------------------------------------------------
 do
 
-    -- local ori_has = Inventory.Has
-    -- local ori_has_replica = InventoryReplica.Has
-    -- local ori_has_classified = InventoryClassified.Has
-    local ori_get_crafting_ingredient = Inventory.GetCraftingIngredient
-    local ori_get_crafting_ingredient_replica = InventoryReplica.GetCraftingIngredient
-    local ori_remove_item = Inventory.RemoveItem
+    AddComponentPostInit("inventory", function(self)
 
-    function Inventory:RemoveItem(item, wholestack, checkallcontainers)
+        -- TheWorld.DebugMessage("add post init inventory")
 
-        -- print(">the removing item: a table "..tostring(item.prefab).." Whole stack "..tostring(wholestack))
-        local return_item = ori_remove_item(self, item, wholestack, false)
+        local oldHas = self.Has
 
-        -- This happens when get an item from a stackable item, in other conditions the item value will not change
-        if return_item ~= item then
-            return return_item
+        self.Has = function(item, amount, checkallcontainers)
+
+            local iscrafting = checkallcontainers
+            local has_enough, num_found = oldHas(item, amount, checkallcontainers)
+
+            if has_enough then
+                return true, num_found
+            end
+
+            local chests = GetSurroundingContainers(self.inst)
+            local overflow = self:GetOverflowContainer()
+            local opencontainers = self.opencontainers
+
+            for i, chest in pairs(chests) do
+
+                if opencontainers  and opencontainers[chest] then
+                    -- 如果箱子已经被打开，则不做检测
+                else
+                    local container = chest and chest.components and chest.components.container or chest.components.inventory
+                    if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
+                        local container_enough, container_found = container:Has(item, amount, iscrafting)
+                        num_found = num_found + container_found
+                    end
+                end
+                
+            end
+
+            return num_found >= amount, num_found
         end
 
-        local chests = GetSurroundingContainers(self.inst)
-        local overflow = self:GetOverflowContainer()
+        local oldRemoveItem = self.RemoveItem
 
-        local prevslot = item.components.inventoryitem and item.components.inventoryitem:GetSlotNum() or nil
-        if not wholestack and item.components.stackable ~= nil and item.components.stackable:IsStack() then
-            -- the logic just like origin remove item, here we do nothing
-        else
-            -- We will check if the remove param whole stack is true, then we will try to use lose item
+        self.RemoveItem = function(item, wholestack, checkallcontainers, keepoverstacked)
+
+            if item == nil then
+                return
+            end
+
+            -- print(">the removing item: a table "..tostring(item.prefab).." Whole stack "..tostring(wholestack))
+            local return_item = oldRemoveItem(item, wholestack, checkallcontainers, keepoverstacked)
+
+            -- This happens when get an item from a stackable item, in other conditions the item value will not change
+            if return_item ~= item then
+                return return_item
+            end
+
+            local chests = GetSurroundingContainers(self.inst)
+            local overflow = self:GetOverflowContainer()
+            local opencontainers = self.opencontainers
+
             for i, chest in pairs(chests) do
-                local container = chest and chest.components and chest.components.container
-                if chest ~= overflow and container and container.slots then
-                    for k, v in pairs(container.slots) do
-                        if v == item then
-                            container.slots[k] = nil
-                            container.inst:PushEvent("itemlose", {
-                                slot = k,
-                                prev_item = item
-                            })
-                            if item.components and item.components.inventoryitem then
-                                item.components.inventoryitem:OnRemoved()
-                            end
-                            item.prevslot = prevslot
-                            item.prevcontainer = container
-                            return item
+
+                if opencontainers  and opencontainers[chest] then
+                    -- 如果箱子已经被打开，则不做检测
+                else
+                    local container = chest and chest.components and chest.components.container or chest.components.inventory
+                    if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
+                        local container_item = container:RemoveItem(item, wholestack, nil, keepoverstacked)
+                        if container_item then
+                            return container_item
                         end
                     end
                 end
+
+                
             end
+
+
+            return item
 
         end
 
-        return item
+        local oldGetCraftingIngredient = self.GetCraftingIngredient
 
-    end
+        self.GetCraftingIngredient = function (item, amount)
+            -- dict[item_inst, number]
+            local crafting_items = oldGetCraftingIngredient(item, amount)
 
-    AddComponentPostInit("inventory", function(self)
-        -- 1. 保存原始的 Has 函数
-        local oldHas = self.Has
-
-        -- TheWorld.DebugMessage("add post init inventory")
-
-        -- 2. 定义我们新的、增强版的 Has 函数
-        self.Has = function(inst, item, amount, checkallcontainers)
-            -- a. 首先，调用原始的 Has 函数，获取角色自身（包括背包和已打开容器）的物品数量
-            local has_enough, num_found = oldHas(inst, item, amount, checkallcontainers)
-
-            -- 调试信息，发布版本可以注释掉
-        -- print("Inventory:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
-        --               tostring(IsClient) .. ":Has called <|" .. tostring(item) .. "|> amount [" .. tostring(amount) ..
-        --               "]" .. " number found [" .. tostring(num_found) .. "]")
-
-            -- b. 如果原始检查已经满足数量，或者不需要检查，就直接返回，节省性能
-            if has_enough then
-                return true, num_found
+            local total_num_found = 0
+            for k, v in pairs(crafting_items) do
+                total_num_found = total_num_found + v
             end
 
-            -- c. 如果数量不够，计算还差多少
-            local left = amount - num_found
-            if left <= 0 then
-                -- 理论上不会进入这里，因为上面有 has_enough 判断，但作为安全校验
-                return true, num_found
+            if total_num_found >= amount then
+                return crafting_items
             end
 
-            -- d. 调用你写好的函数，检查周边容器
-            -- 这里的 self.inst 就是 inventory 组件的拥有者，即玩家实例
-            local enough_in_containers, num_in_containers = HasInContainers(self.inst, item, left)
+            local chests = GetSurroundingContainers(self.inst)
+            local overflow = self:GetOverflowContainer()
+            local opencontainers = self.opencontainers
 
-            -- 调试信息，发布版本可以注释掉
-        -- print("Inventory:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
-        --               tostring(IsClient) .. ":Found <|" .. tostring(item) .. "|> in CHEST " .. " number found [" ..
-        --               tostring(num_in_containers) .. "]")
+            for i, chest in pairs(chests) do
 
-            -- e. 将两部分结果合并
-            local total_found = num_found + num_in_containers
+                if opencontainers  and opencontainers[chest] then
+                    -- 如果箱子已经被打开，则不做检测
+                else
+                    local container = chest and chest.components and chest.components.container or chest.components.inventory
+                    if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
+                        if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
+                            for k, v in pairs(container:GetCraftingIngredient(item, amount - total_num_found, true)) do
+                                crafting_items[k] = v
+                                total_num_found = total_num_found + v
+                            end
+                        end
 
-            -- f. 返回最终的、合并后的结果
-            return total_found >= amount, total_found
-        end
-
-    end)
-
-    AddClassPostConstruct("components/inventory_replica", function(self)
-        -- 1. 保存原始的 Has 函数
-        local oldHas = self.Has
-
-        -- TheWorld.DebugMessage("add post init inventory")
-
-        -- 2. 定义我们新的、增强版的 Has 函数
-        self.Has = function(inst, item, amount, checkallcontainers)
-            -- a. 首先，调用原始的 Has 函数，获取角色自身（包括背包和已打开容器）的物品数量
-            local has_enough, num_found = oldHas(inst, item, amount, checkallcontainers)
-            -- 调试信息，发布版本可以注释掉
-        -- print("InventoryReplica:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
-        --               tostring(IsClient) .. ":Has called <|" .. tostring(item) .. "|> amount [" .. tostring(amount) ..
-        --               "]" .. " number found [" .. tostring(num_found) .. "]")
-
-            -- b. 如果原始检查已经满足数量，或者不需要检查，就直接返回，节省性能
-            if has_enough then
-                return true, num_found
-            end
-
-            -- c. 如果数量不够，计算还差多少
-            local left = amount - num_found
-            if left <= 0 then
-                -- 理论上不会进入这里，因为上面有 has_enough 判断，但作为安全校验
-                return true, num_found
-            end
-
-            -- d. 调用你写好的函数，检查周边容器
-            -- 这里的 self.inst 就是 inventory 组件的拥有者，即玩家实例
-            local enough_in_containers, num_in_containers = HasInContainers(self.inst, item, left)
-
-            -- 调试信息，发布版本可以注释掉
-        -- print("InventoryReplica:" .. "(S):" .. tostring(IsServer) .. "(D):" .. tostring(IsDedicated) .. "(C):" ..
-        --               tostring(IsClient) .. ":Found <|" .. tostring(item) .. "|> in CHEST " .. " number found [" ..
-        --               tostring(num_in_containers) .. "]")
-
-            -- e. 将两部分结果合并
-            local total_found = num_found + num_in_containers
-
-            -- f. 返回最终的、合并后的结果
-            return total_found >= amount, total_found
-        end
-
-    end)
-
-
-
-    -- can only call from server
-    function Inventory:GetCraftingIngredient(item, amount)
-        -- print ("Call get crafting ingredient "..amount.." "..item)
-        local ingredients = ori_get_crafting_ingredient(self, item, amount)
-
-        local total_num_found = 0
-        for k, v in pairs(ingredients) do
-            total_num_found = total_num_found + v
-        end
-
-        if total_num_found >= amount then
-            -- print("Backpack is enough")
-            return ingredients
-        end
-
-        local chests = GetSurroundingContainers(self.inst)
-        local overflow = self:GetOverflowContainer()
-        for i, chest_inst in pairs(chests) do
-            local chest = chest_inst.components.container
-            -- print("Chest "..tostring(chest))
-            if chest and chest ~= overflow and not chest.excludefromcrafting then
-
-                -- 原始逻辑，不保留材料
-                for k, v in pairs(chest:GetCraftingIngredient(item, amount - total_num_found, true)) do
-                    ingredients[k] = v
-                    total_num_found = total_num_found + v
-                    if total_num_found >= amount then
-                        return ingredients
+                        if total_num_found >= amount then
+                            return crafting_items
+                        end
                     end
                 end
                 
             end
         end
 
-        return ingredients
+    end)
 
-    end
+    AddClassPostConstruct("components/inventory_replica", function(self)
+        
+        local oldHas = self.Has
+        
+        self.Has = function (prefab, amount, checkallcontainers)
+            local has_enough, num_found = oldHas(prefab, amount, checkallcontainers)
+
+            if has_enough then
+                return true, num_found
+            end
+
+            local chests = GetSurroundingContainers(self.inst)
+            local overflow = self:GetOverflowContainer()
+            local opencontainers = self.opencontainers
+
+            local num_found = 0
+
+            for i, chest in pairs(chests) do
+
+                if opencontainers  and opencontainers[chest] then
+                    -- 如果箱子已经被打开，则不做检测
+                else
+                    local container = chest and chest.replica and chest.replica.container or chest.replica.inventory
+                    if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
+                        local container_enough, container_found = container:Has(prefab, amount, true)
+                        num_found = num_found + (container_found or 0)
+                    end
+                end
+                
+            end
+            -- 移除或减少print以提高性能
+            -- print("Item "..tostring(item)..",  found in "..#chests.." chests: "..num_found.."/"..amount)
+            return num_found >= amount, num_found
+        end
+
+    end)
 
 end
 
@@ -467,97 +444,6 @@ local ThePlayer = _G.ThePlayer
 -- -- called by server
 
 -- ---update sigle data
-local function ItemGet(inst, data)
-    -- 添加完整的空值检查
-    if not inst or not inst.components or not data or not data.item then
-        return
-    end
-    
-    local container = inst.components.container
-    if not container or not container.slots then
-        if inst._item_str then
-            inst._item_str:set("")
-        end
-        return
-    end
-    
-    if container:IsEmpty() then
-        if inst._item_str then
-            inst._item_str:set("")
-        end
-        return
-    end
-
-    -- 确保data.item有prefab属性
-    if not data.item.prefab then
-        return
-    end
-
-    local item_count = 0
-    local target_prefab = data.item.prefab
-
-    -- 计算目标物品的数量
-    for k, v in pairs(container.slots) do
-        if v and v.prefab == target_prefab then
-            item_count = item_count + Count(v)
-        end
-    end
-    
-    -- 构建结果字符串
-    local result = tostring(target_prefab) .. " " .. item_count
-    
-    if inst._item_str then
-        inst._item_str:set(result)
-
-        -- print("Send msg "..result)
-    end
-end
-
-local function ItemLose(inst, data)
-    -- 添加完整的空值检查
-    if not inst or not inst.components or not data or not data.prev_item then
-        return
-    end
-    
-    local container = inst.components.container
-    if not container or not container.slots then
-        if inst._item_str then
-            inst._item_str:set("")
-        end
-        return
-    end
-    
-    if container:IsEmpty() then
-        if inst._item_str then
-            inst._item_str:set("")
-        end
-        return
-    end
-
-    -- 确保data.prev_item有prefab属性
-    if not data.prev_item.prefab then
-        return
-    end
-
-    local item_count = 0
-    local target_prefab = data.prev_item.prefab
-
-    -- 计算剩余物品的数量
-    for k, v in pairs(container.slots) do
-        if v and v.prefab == target_prefab then
-            item_count = item_count + Count(v)
-        end
-    end
-    
-    -- 构建结果字符串
-    local result = tostring(target_prefab) .. " " .. item_count
-    
-    if inst._item_str then
-        inst._item_str:set(result)
-
-        -- print("Send msg "..result)
-    end
-end
 
 local function UpdateContainerAll(inst)
         if not inst or not inst.components then
@@ -676,11 +562,7 @@ AddClassPostConstruct("components/container_replica", function(self)
                 for k, v in pairs(inst.buffered_items) do
                     -- both k and v are string i guess
                     if k == prefab then
-                        if KEEP_ONE then
-                            num_found = num_found + math.min(0, (tonumber(v) or 0) - 1)
-                        else
-                            num_found = num_found + (tonumber(v) or 0)
-                        end 
+                        num_found = num_found + (tonumber(v) or 0)
                     end
                 end
                 -- print("From buffered "..#inst.buffered_items.." has "..prefab.." "..num_found.."/"..amount)
