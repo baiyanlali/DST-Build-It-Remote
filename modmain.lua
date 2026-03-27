@@ -570,16 +570,18 @@ AddClassPostConstruct("components/container_replica", function(self)
                 if not self_ref or not self_ref.inst.buffered_items then
                     return false, 0
                 end
+
+                local prefab_str = tostring(prefab)
                 
                 local num_found = 0
                 for k, v in pairs(self_ref.inst.buffered_items) do
                     -- both k and v are string i guess
-                    debug_print("Check " .. k .. "(#" .. tostring(v)  .. ")==" .. prefab)
+                    debug_print("Check " .. k .. "(#" .. tostring(v)  .. ")==" .. prefab_str)
                     if k == prefab then
                         num_found = num_found + (tonumber(v) or 0)
                     end
                 end
-                debug_print("From buffered has "..prefab.." "..num_found.."/"..amount)
+                debug_print("From buffered has "..prefab_str.." "..num_found.."/"..amount)
                 
                 return num_found >= amount, num_found
             end
