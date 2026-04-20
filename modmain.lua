@@ -337,7 +337,7 @@ do
                     if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
                         local container_enough, container_found = container:Has(prefab, amount, true)
                         num_found = num_found + (tonumber(container_found) or 0)
-                        debug_print("Search for " .. tostring(prefab) .." in chest ".. container.type .. ". And get " .. tostring(container_found))
+                        debug_print("Search for " .. tostring(prefab) .." in chest ".. tostring(container.type) .. ". And get " .. tostring(container_found))
                     end
                 end
                 
