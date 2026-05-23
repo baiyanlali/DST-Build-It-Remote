@@ -232,8 +232,9 @@ do
             -- print(">the removing item: a table "..tostring(item.prefab).." Whole stack "..tostring(wholestack))
             local return_item = oldRemoveItem(self, item, wholestack, checkallcontainers, keepoverstacked)
 
-            -- This happens when get an item from a stackable item, in other conditions the item value will not change
-            if return_item ~= item then
+            -- If oldRemoveItem successfully removed something, return it.
+            -- oldRemoveItem may return the same item object when removal succeeded.
+            if return_item ~= nil then
                 return return_item
             end
 
@@ -289,11 +290,9 @@ do
                 else
                     local container = chest and chest.components and chest.components.container or chest.components.inventory
                     if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
-                        if container and container ~= overflow and not container.excludefromcrafting and not container.readonlycontainer then
-                            for k, v in pairs(container:GetCraftingIngredient(item, amount - total_num_found, true)) do
-                                crafting_items[k] = v
-                                total_num_found = total_num_found + v
-                            end
+                        for k, v in pairs(container:GetCraftingIngredient(item, amount - total_num_found, true) or {}) do
+                            crafting_items[k] = v
+                            total_num_found = total_num_found + v
                         end
 
                         if total_num_found >= amount then
@@ -303,6 +302,8 @@ do
                 end
                 
             end
+
+            return crafting_items
         end
 
     end)
