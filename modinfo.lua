@@ -2,7 +2,7 @@ local L = locale ~= "zh" and locale ~= "zhr" -- true 英文  false 中文
 local Loc = function(eng, chi) return L and eng or chi end
 
 
-version = '1.3.16'
+version = '1.3.17'
 local log = {
     Loc("v1.3.7 Update: Reduce network bandwidth consumption and server performance consumption.","v1.3.7 更新：减少了网络带宽的占用和服务器的性能消耗。"),
     Loc("v1.3.8 Update: Solve server lag problem by introducing cache.","v1.3.8 更新：通过引入缓存来解决服务器卡顿问题。"),
@@ -15,6 +15,20 @@ local log = {
     Loc("v1.3.14 Update:  Fix prefab nil issue","v1.3.14 更新：修复 prefab 为空的 issue。"),
     Loc("v1.3.15 Update:  Fix container type nil issue","v1.3.15 更新：修复 container type 为空的 issue。"),
     Loc("v1.3.16 Update:  Fix container ingredient won't be consumed issue","v1.3.16 更新：修复 container ingredient 无法被消耗的 issue。"),
+    Loc("v1.3.17 Update:  Fixed the bug where items could be crafted without consuming materials, and greatly reduced lag.",
+        "v1.3.17 更新：修复了造物时有概率不消耗材料的 bug，并大幅优化了卡顿。"),
+    Loc("        - Ingredient lookup no longer leaks into non-crafting checks (Wortox souls, rope bridges, pumpkin carving...), which was letting those abilities trigger for free.",
+        "        - 材料查找不再污染非合成类的检查（沃拓克斯灵魂、绳桥、雕刻南瓜等），此前这些功能会出现\"生效但不扣材料\"。"),
+    Loc("        - Destroyed/burnt chests are no longer counted as valid material sources within the cache window.",
+        "        - 箱子被烧毁或拆除后，不会再在缓存有效期内被当成有效的材料来源（幽灵材料）。"),
+    Loc("        - Ingredient removal now goes through the container that actually holds the item.",
+        "        - 扣除材料时改为定位物品真正所在的容器再扣，不再依赖失效的判断分支。"),
+    Loc("        - Fixed double-counting of already-opened chests in the crafting UI.",
+        "        - 修复已打开的箱子在合成界面被重复计数的问题。"),
+    Loc("        - Crafting menu ingredient queries are now cached per tick (~50x faster).",
+        "        - 合成菜单的材料查询改为按帧聚合缓存（实测快约 50 倍）。"),
+    Loc("        - Container sync is now coalesced per frame and skipped when unchanged; string length is capped to avoid truncation.",
+        "        - 容器同步改为每帧合并、内容未变则不发送，并限制长度避免网络字符串被截断。"),
 }
 
 local function updateLog()
