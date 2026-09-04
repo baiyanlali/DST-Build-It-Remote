@@ -107,7 +107,9 @@ end
 -- 原实现每次都要 遍历箱子 x 遍历槽位，这里降为每 tick 全扫一次、之后 O(1)。
 -----------------------------------------------------------------
 
-local cache = setmetatable({}, { __mode = "k" })
+-- 注意：DST 的 mod 沙箱（CreateEnvironment）不提供 setmetatable 等标准库全局函数，
+-- 必须经由 GLOBAL（真实全局表）访问，否则加载时直接报 "attempt to call global 'setmetatable' (a nil value)"
+local cache = _G.setmetatable({}, { __mode = "k" })
 
 local function InvalidateCounts(inst)
     local entry = inst ~= nil and cache[inst] or nil
