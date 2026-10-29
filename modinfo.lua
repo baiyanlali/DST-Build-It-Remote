@@ -2,7 +2,7 @@ local L = locale ~= "zh" and locale ~= "zhr" -- true 英文  false 中文
 local Loc = function(eng, chi) return L and eng or chi end
 
 
-version = '1.3.18'
+version = '1.3.20'
 local log = {
     Loc("v1.3.7 Update: Reduce network bandwidth consumption and server performance consumption.","v1.3.7 更新：减少了网络带宽的占用和服务器的性能消耗。"),
     Loc("v1.3.8 Update: Solve server lag problem by introducing cache.","v1.3.8 更新：通过引入缓存来解决服务器卡顿问题。"),
@@ -31,6 +31,10 @@ local log = {
         "        - 容器同步改为每帧合并、内容未变则不发送，并限制长度避免网络字符串被截断。"),
     Loc("v1.3.18 Update: Fixed incomplete chest material sync and stale crafting status; nearby material changes now refresh pinned recipes with the crafting menu closed.",
         "v1.3.18 更新：修复箱子材料同步不完整、制作状态不刷新的问题；关闭制作菜单时，附近材料变化也会更新固定栏。"),
+    Loc("v1.3.19 Update: Fixed a crash when putting items into shadow storage containers (Shadow Chester, Magician's Chest, Magician's Top Hat). Only the crash is fixed: shadow dimension storage is not counted as nearby crafting material (even at coordinates (0,0,0)).",
+        "v1.3.19 更新：修复往暗影存储容器（暗影切斯特、魔术箱、魔术帽）中放物品时闪退的问题；仅修复崩溃，暗影维度存储不被计为附近的合成材料（即使你在坐标 (0,0,0)）"),
+    Loc("v1.3.20 Update: Fixed the crafting UI showing only the opened container's material count instead of the total with nearby chests.",
+        "v1.3.20 更新：修复打开容器（如暗影容器）时，制作栏材料数量只显示打开容器、没算上附近箱子的问题。"),
 }
 
 local function updateLog()
@@ -43,7 +47,7 @@ local function updateLog()
 end
 
 description = Loc(
-    'We can build an item using nearby chests, instead of grabbing items in chest to bag and use it. Version '..version..".",
+    'We can build an item using nearby chests, instead of grabbing items in chest to bag and use it. Version '..version.."\n"..updateLog(),
 [[你是否有过要建造一些物品，但是原料在箱子里懒得拿出来，或是背包太满腾不出空间放原料的伤心经历？
 这是量子造物mod！它可以自动探查并使用你周围箱子里面的原料来建造物品。终于不用背一堆木头了~
 版本:]]..version.."\n"..updateLog())

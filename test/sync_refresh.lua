@@ -87,12 +87,18 @@ local function Runtime(server)
         end
         self:flush()
     end
-    function r:chest(items,x)
+    function r:chest(items,x,opts)
         local e=self:entity(x)
         local c={inst=e, slots={}, IsEmpty=function(self) return next(self.slots)==nil end}
         for prefab,count in pairs(items or {}) do
             local item={prefab=prefab, components={stackable={StackSize=function() return count end}}, IsValid=function() return true end, HasTag=function() return false end}
             c.slots[#c.slots+1]=item
+        end
+        if opts and opts.tags then
+            e.HasTag=function(_,tag) return opts.tags[tag]==true end
+        end
+        if opts and opts.notransform then
+            e.Transform=nil
         end
         if server then e.components.container=c end
         local rep={inst=e, Has=function() return false,0 end, IsReadOnlyContainer=function() return false end}
@@ -238,6 +244,34 @@ test("stack changes roundtrip and refresh without opening the chest",function()
     container.slots[1].components.stackable.StackSize=function() return 3 end
     source:PushEvent("stacksizechange"); s:flush(); c:deliver(source,dest); c:flush()
     local has,n=inv:Has("log",4,true); eq(has,false); eq(n,3); eq(p.refreshes,2)
+end)
+
+test("shadow pocket container without Transform neither crashes nor refreshes",function()
+    local s,c=Runtime(true),Runtime(false)
+    s:player()                        -- 服务端也必须有 ThePlayer，崩溃正好发生在这里
+    local p,inv=c:player()
+    local source,container=s:chest({log=10}); local dest=c:chest({})
+    -- 暗影切斯特 / 魔术箱共用口袋维度容器：不在世界里，没有 Transform
+    source.Transform=nil; dest.Transform=nil
+    s:flush()                         -- DoUpdateContainer -> QueueNearbyCraftingRefresh
+    c:deliver(source,dest); c:flush() -- on_container_dirty -> QueueNearbyCraftingRefresh
+    local has,n=inv:Has("log",10,true)
+    eq(has,true); eq(n,10)            -- 广播内容照常可用
+    eq(p.refreshes,0)                 -- 它不是附近的材料源，不应触发刷新
+end)
+
+test("pocket dimension container is fully excluded from the mod",function()
+    local s,c=Runtime(true),Runtime(false)
+    s:player()
+    local p,inv=c:player()
+    local opts={tags={pocketdimension_container=true}}
+    local source=s:chest({log=10},0,opts)
+    local dest=c:chest({},0,{tags={pocketdimension_container=true},notransform=true})
+    s:flush()
+    eq(next(source.nets),nil)          -- 服务端不挂 mod 网络串
+    c:deliver(source,dest); c:flush()  -- 也不应因缺少 Transform 崩溃
+    eq(next(dest.nets),nil)
+    eq(dest.buffered_items,nil)        -- 未被 mod 初始化
 end)
 
 -- 可选：运行用户提供的真实优化模组，不复制或改写第三方实现。

@@ -707,5 +707,38 @@ do
     check("S10 幽灵箱子不能白嫖合成", not allowed, "allowed=" .. tostring(allowed))
 end
 
+-- 场景 11：口袋维度容器（暗影切斯特 / 魔术箱共享的 shadow_container）显式不支持。
+--         它固定在世界坐标 (0,0,0)，若被当成附近箱子就会消耗全队共享的暗影存储。
+do
+    reset()
+    local p = MakePlayer()
+    local chest = MakeChest("shadow_container")
+    chest:AddTag("pocketdimension_container")
+    chest.components.container:GiveItem(MakeItem("nightmarefuel", 20))
+    local has, n = p.components.inventory:Has("nightmarefuel", 4, true)
+    check("S11 暗影存储不算材料", (not has) and n == 0,
+        "has=" .. tostring(has) .. " n=" .. tostring(n))
+    local ok, why = craft(p, { ingredients = { { type = "nightmarefuel", amount = 4 } } })
+    check("S11 不能从暗影存储取料", ok == false, tostring(why))
+end
+
+-- 场景 12：打开着的容器（如暗影容器）里的数量不能“覆盖”附近箱子。
+--         Has 返回的 num_found 必须是「打开容器 + 附近箱子」的总量，否则制作栏显示偏少。
+do
+    reset()
+    local p = MakePlayer()
+    local opened = MakeChest()
+    opened.components.container:GiveItem(MakeItem("twigs", 2))
+    p.components.inventory.opencontainers[opened] = true   -- 玩家正打开着它
+    local nearby = MakeChest()
+    nearby.components.container:GiveItem(MakeItem("twigs", 10))
+    nearby.components.container:GiveItem(MakeItem("rocks", 2))
+
+    local has, n = p.components.inventory:Has("twigs", 2, true)
+    check("S12 打开容器时仍显示附近总量(树枝)", has and n == 12, "n=" .. tostring(n))
+    local has2, n2 = p.components.inventory:Has("rocks", 2, true)
+    check("S12 打开容器时仍显示附近总量(石头)", has2 and n2 == 2, "n=" .. tostring(n2))
+end
+
 print(string.format("\n结果: %d passed, %d failed\n", pass, fail))
 os.exit(fail == 0 and 0 or 1)

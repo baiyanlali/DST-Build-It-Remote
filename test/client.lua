@@ -186,5 +186,20 @@ do
     check("C2 判定结果正确", has == true, "has=" .. tostring(has))
 end
 
+-- C3：打开着的容器不能“覆盖”附近箱子。制作栏用 Has 的 num_found 显示数量，
+--     必须返回「打开容器 + 附近箱子」的总量（打开 2 树枝 + 附近 10 树枝 = 12）。
+do
+    all_ents = {}
+    clock = clock + 100
+    local opened = MakeChestReplica({ twigs = 2 }, true)          -- 已打开：仅 2 树枝
+    local closed = MakeChestReplica({ twigs = 10, rocks = 2 }, false) -- 附近箱子
+    local player, prep = MakePlayerReplica({ [opened] = true })
+    local has, n = prep:Has("twigs", 2, true)
+    check("C3 打开容器时显示附近总量(树枝)", has and n == 12,
+        "n=" .. tostring(n) .. "（期望 12 = 2 已开 + 10 附近；bug 时是 2）")
+    local has2, n2 = prep:Has("rocks", 2, true)
+    check("C3 打开容器时显示附近总量(石头)", has2 and n2 == 2, "n=" .. tostring(n2))
+end
+
 print(string.format("\n结果: %d passed, %d failed\n", pass, fail))
 os.exit(fail == 0 and 0 or 1)
