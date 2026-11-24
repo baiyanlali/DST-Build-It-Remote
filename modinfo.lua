@@ -2,7 +2,7 @@ local L = locale ~= "zh" and locale ~= "zhr" -- true 英文  false 中文
 local Loc = function(eng, chi) return L and eng or chi end
 
 
-version = '1.3.20'
+version = '1.3.21'
 local log = {
     Loc("v1.3.7 Update: Reduce network bandwidth consumption and server performance consumption.","v1.3.7 更新：减少了网络带宽的占用和服务器的性能消耗。"),
     Loc("v1.3.8 Update: Solve server lag problem by introducing cache.","v1.3.8 更新：通过引入缓存来解决服务器卡顿问题。"),
@@ -35,6 +35,12 @@ local log = {
         "v1.3.19 更新：修复往暗影存储容器（暗影切斯特、魔术箱、魔术帽）中放物品时闪退的问题；仅修复崩溃，暗影维度存储不被计为附近的合成材料（即使你在坐标 (0,0,0)）"),
     Loc("v1.3.20 Update: Fixed the crafting UI showing only the opened container's material count instead of the total with nearby chests.",
         "v1.3.20 更新：修复打开容器（如暗影容器）时，制作栏材料数量只显示打开容器、没算上附近箱子的问题。"),
+    Loc("v1.3.21 Update: Fixed quick-bar / pinned recipes sometimes producing items without consuming materials.",
+        "v1.3.21 更新：修复快捷栏（固定栏）制造时有概率不消耗材料的 bug。"),
+    Loc("        - Ingredient checks and ingredient removal now use the same container scan, so a recipe can no longer pass the check but take nothing.",
+        "        - 材料检查与取料扣料改为同一套容器遍历口径，不再出现\"检查通过、取不到料、产物照造\"。"),
+    Loc("        - Nearby material caches now invalidate whenever chest contents change, so rapid consecutive crafts cannot read stale counts.",
+        "        - 箱子内容变化会让附近材料缓存立即失效，长按连造时不会读到过期数量。"),
 }
 
 local function updateLog()

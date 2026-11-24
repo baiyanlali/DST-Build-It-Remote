@@ -740,5 +740,124 @@ do
     check("S12 打开容器时仍显示附近总量(石头)", has2 and n2 == 2, "n=" .. tostring(n2))
 end
 
+-----------------------------------------------------------------
+-- 快捷栏 / 固定栏（PinBar -> BufferBuild / MakeRecipeFromMenu）诊断
+-----------------------------------------------------------------
+print("\n=== QUICKBAR DIAG ===")
+
+-- 原版 Builder:DoBuild：先取料再扣料，且【不校验取到的数量是否等于需求】
+-- buffered build（建筑配方）在 BufferBuild 时扣料，DoBuild 里跳过二次扣除
+local function builder_build(player, recipe, buffered)
+    if not Builder_HasIngredients(player, recipe) then return false end
+    local mats = Builder_GetIngredients(player, recipe)
+    local got = 0
+    for _, ents in pairs(mats) do for _, v in pairs(ents) do got = got + v end end
+    local need = 0
+    for _, v in ipairs(recipe.ingredients) do need = need + v.amount end
+    if not buffered then Builder_RemoveIngredients(player, mats) end
+    return true, got, need
+end
+
+-- Q1 同一 tick 连续点快捷栏（长按连造），counts 缓存是否会报旧数量
+do
+    reset()
+    local p = MakePlayer()
+    local chest = MakeChest()
+    chest.components.container:GiveItem(MakeItem("log", 10))
+    local recipe = { ingredients = { { type = "log", amount = 3 } } }
+    local built, last_got, last_need = 0, 0, 0
+    for i = 1, 3 do
+        local ok, got, need = builder_build(p, recipe)
+        if ok then built = built + 1; last_got, last_need = got, need end
+    end
+    check("Q1 连续3次都造出", built == 3, "built=" .. built)
+    check("Q1 每次都取齐料", last_got == last_need, "got=" .. last_got .. "/" .. last_need)
+    check("Q1 守恒(10->1)", chest_count(chest, "log") == 1, "剩 " .. chest_count(chest, "log"))
+end
+
+-- Q2 同一 tick 内 Has 建立缓存后，箱子内容被外部改动（其他玩家/烧毁/腐坏）
+-- 真实引擎会派发 stacksizechange -> container_replica 的监听 -> 内容版本 +1
+do
+    reset()
+    local p = MakePlayer()
+    local chest = MakeChest()
+    chest.components.container:GiveItem(MakeItem("log", 10))
+    -- 挂载 mod 在 container_replica 上的服务端事件监听（harness 默认只收集不执行）
+    for _, fn in ipairs(CLASS_POSTCONSTRUCTS["components/container_replica"] or {}) do
+        fn(chest.replica.container)
+    end
+    flush_tasks(); flush_tasks()
+    local has, n = p.components.inventory:Has("log", 10, true)   -- 建立 counts 缓存
+    chest.components.container.slots[1].components.stackable:SetStackSize(1)
+    chest:PushEvent("stacksizechange", {})                        -- 模拟引擎事件
+    flush_tasks(); flush_tasks()
+    local allowed = Builder_HasIngredients(p, { ingredients = { { type = "log", amount = 10 } } })
+    local mats = p.components.inventory:GetCraftingIngredient("log", 10)
+    local got = 0; for _, v in pairs(mats) do got = got + v end
+    check("Q2 缓存不与真实容器脱节", not allowed, "allowed=" .. tostring(allowed) .. " 实取=" .. got)
+end
+
+-- Q3 Has 用 pairs(slots)、GetCraftingIngredient 用 1..numslots 的口径差
+do
+    reset()
+    local p = MakePlayer()
+    local chest = MakeChest(nil, 2)
+    local it = MakeItem("log", 10)
+    chest.components.container.slots[5] = it  -- 超出 numslots 的槽（特殊容器/overstacked）
+    it.components.inventoryitem:SetOwner(chest)
+    local has, n = p.components.inventory:Has("log", 5, true)
+    local mats = p.components.inventory:GetCraftingIngredient("log", 5)
+    local got = 0; for _, v in pairs(mats) do got = got + v end
+    check("Q3 Has 说够时取料必须取齐", (not has) or got == 5,
+        string.format("has=%s n=%d got=%d", tostring(has), n, got))
+end
+
+-- Q4 打开着的箱子 + 附近未打开箱子（边开箱边用快捷栏）
+do
+    reset()
+    local p = MakePlayer()
+    local opened = MakeChest()
+    opened.components.container:GiveItem(MakeItem("log", 2))
+    p.components.inventory.opencontainers[opened] = true
+    local nearby = MakeChest()
+    nearby.components.container:GiveItem(MakeItem("log", 5))
+    local before = chest_count(opened, "log") + chest_count(nearby, "log")
+    local ok, got, need = builder_build(p, { ingredients = { { type = "log", amount = 6 } } })
+    local after = chest_count(opened, "log") + chest_count(nearby, "log")
+    check("Q4 造物成功", ok)
+    check("Q4 取料齐", got == need, "got=" .. got .. "/" .. need)
+    check("Q4 恰好扣 6", before - after == 6, "delta=" .. (before - after))
+end
+
+-- Q5 建筑配方 BufferBuild 语义：扣料后 buffered，放置时不再扣
+do
+    reset()
+    local p = MakePlayer()
+    local chest = MakeChest()
+    chest.components.container:GiveItem(MakeItem("cutgrass", 8))
+    local recipe = { ingredients = { { type = "cutgrass", amount = 4 } } }
+    local ok, got, need = builder_build(p, recipe)   -- BufferBuild 阶段：扣料
+    local after_buffer = chest_count(chest, "cutgrass")
+    builder_build(p, recipe, true)                   -- DoBuild 阶段：buffered，跳过扣料
+    local after_place = chest_count(chest, "cutgrass")
+    check("Q5 BufferBuild 取料齐", got == need, "got=" .. got .. "/" .. need)
+    check("Q5 只扣一次 4", after_buffer == 4 and after_place == 4,
+        "after_buffer=" .. after_buffer .. " after_place=" .. after_place)
+end
+
+-- Q6 非合成语境的 Has（2 参数）不能污染，且制作栏数量与取料一致
+do
+    reset()
+    local p = MakePlayer()
+    p.components.inventory:GiveItem(MakeItem("twigs", 1))
+    local c = MakeChest()
+    c.components.container:GiveItem(MakeItem("twigs", 4))
+    local has, n = p.components.inventory:Has("twigs", 5, true)
+    local mats = p.components.inventory:GetCraftingIngredient("twigs", 5)
+    local got = 0; for _, v in pairs(mats) do got = got + v end
+    check("Q6 Has / 取料一致", has and n == 5 and got == 5,
+        string.format("has=%s n=%d got=%d", tostring(has), n, got))
+end
+
 print(string.format("\n结果: %d passed, %d failed\n", pass, fail))
 os.exit(fail == 0 and 0 or 1)

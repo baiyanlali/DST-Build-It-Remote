@@ -41,6 +41,15 @@ local FIND_CANT_TAGS = { "NOBLOCK", "player", "FX" }
 
 local EMPTY_TABLE = {}
 
+-- 附近容器内容的版本号。
+-- 任何容器内容变化（扣料 / 放入 / 堆叠变化 / 广播到达）都会 +1，
+-- 让所有按 tick 缓存的聚合数量与「允许合成」复核结果立刻失效。
+-- 这样既保留 O(1) 的菜单刷新性能，又不会出现「缓存说够、真实容器已空」。
+local container_revision = 0
+local function BumpContainerRevision()
+    container_revision = container_revision + 1
+end
+
 -- may cause bug by item.replica is nil. It happens when item is given by some NPC? I don't know really. But it may work now.
 local function Count(item)
     if not item then
@@ -107,11 +116,16 @@ end
 -- 必须经由 GLOBAL（真实全局表）访问，否则加载时直接报 "attempt to call global 'setmetatable' (a nil value)"
 local cache = _G.setmetatable({}, { __mode = "k" })
 
+-- counts（Has 的聚合缓存）与 verify（允许合成前的复核结果）必须一起失效，
+-- 否则扣料后同一 tick 内的下一次 Has 仍会读到旧的"够料"判定。
 local function InvalidateCounts(inst)
     local entry = inst ~= nil and cache[inst] or nil
     if entry ~= nil then
         entry.counts = nil
         entry.counts_t = nil
+        entry.verify_t = nil
+        entry.verify_rev = nil
+        entry.verify = nil
     end
 end
 
@@ -285,8 +299,10 @@ local function ShouldSkipChest(chest, opencontainers, overflow_inst)
     return false
 end
 
--- 聚合 prefab -> 数量，按 tick 缓存
-local function GetSurroundingCounts(inventory)
+-- 聚合 prefab -> 数量，按 tick 缓存。
+-- force = true 时跳过缓存重扫一次（用于"判定够料、即将允许制造"的关键分支，
+-- 因为箱子内容可能在同一个 tick 内已经被改过，而 counts 缓存还停在旧值）。
+local function GetSurroundingCounts(inventory, force)
     local inst = inventory.inst
     local chests = GetSurroundingContainers(inst)
     local entry = cache[inst]
@@ -295,7 +311,8 @@ local function GetSurroundingCounts(inventory)
     end
 
     local now = GetTime()
-    if entry.counts ~= nil and entry.counts_t == now then
+    if not force and entry.counts ~= nil and entry.counts_t == now
+        and entry.counts_rev == container_revision then
         return entry.counts
     end
 
@@ -334,6 +351,7 @@ local function GetSurroundingCounts(inventory)
 
     entry.counts = counts
     entry.counts_t = now
+    entry.counts_rev = container_revision
     return counts
 end
 
@@ -383,6 +401,51 @@ do
 
     AddComponentPostInit("inventory", function(self)
 
+        -- 前向声明：Has 定义在 GetCraftingIngredient 之前，但要复用同一套取料逻辑
+        local BuildCraftingIngredients
+
+        -----------------------------------------------------------
+        -- 允许合成前的最后一道校验：真正能取到几个材料。
+        --
+        -- 原版 Builder 把「检查」和「扣料」拆成两步，而且【不校验取到的数量】：
+        --   HasIngredients -> MakeRecipe/BufferBuild -> DoBuild
+        --     -> GetIngredients(取料) -> RemoveIngredients(扣料) -> 生成产物
+        -- 只要 Has 说够、GetCraftingIngredient 取不齐，产物照造、材料少扣或不扣。
+        -- 快捷栏（固定栏）长按连造、以及建筑配方 BufferBuild（预扣一次后
+        -- DoBuild 永久跳过扣料）最容易暴露这个窗口。
+        -- 这里让「够不够」的判定与「能扣到多少」严格同源。
+        -----------------------------------------------------------
+        -- 复核结果按 (tick, 内容版本, 材料) 缓存：缓存的是「实际可取总量」，
+        -- 不同 amount 只需比较一次，制作栏刷新时命中率极高；
+        -- 容器内容一变，container_revision 变化，缓存整体作废。
+        local function VerifyTakeable(inventory, item, amount)
+            local inst = inventory.inst
+            local entry = cache[inst]
+            if entry == nil then
+                entry = {}
+                cache[inst] = entry
+            end
+
+            local now = GetTime()
+            if entry.verify_t ~= now or entry.verify_rev ~= container_revision then
+                entry.verify_t = now
+                entry.verify_rev = container_revision
+                entry.verify = {}
+            end
+            local key = tostring(item)
+            local available = entry.verify[key]
+            if available == nil then
+                -- 用一个足够大的需求量取出全部可用材料，一次扫描覆盖所有配方
+                local mats = BuildCraftingIngredients(inventory, item, 1000000)
+                available = 0
+                for _, v in pairs(mats) do
+                    available = available + v
+                end
+                entry.verify[key] = available
+            end
+            return available >= amount
+        end
+
         -----------------------------------------------------------
         -- Has
         -- 仅在 checkallcontainers == true（合成语境）时扩展。
@@ -405,7 +468,22 @@ do
             local counts = GetSurroundingCounts(self)
             num_found = num_found + (counts[item] or 0)
 
-            return num_found >= amount, num_found
+            -- 不够就直接返回：制作栏刷新时绝大多数配方走这条 O(1) 分支，
+            -- 不会因为下面的复核而变慢。
+            if num_found < amount then
+                return false, num_found
+            end
+
+            -- 判定「够料」= 马上要允许制造。此时必须用与 RemoveIngredients
+            -- 完全同源的取料逻辑复核一次，堵住「检查说够、取料取不齐」的窗口。
+            -- 复核缓存带容器内容版本号，内容一变立即失效，不会像纯 tick 缓存
+            -- 那样在同一帧里读到已经不存在的材料。
+            if not VerifyTakeable(self, item, amount) then
+                InvalidateCounts(self.inst)
+                return false, num_found
+            end
+
+            return true, num_found
         end
 
         -----------------------------------------------------------
@@ -451,6 +529,7 @@ do
                         and container:GetItemSlot(item) ~= nil
                     then
                         local removed = container:RemoveItem(item, wholestack, nil, keepoverstacked)
+                        BumpContainerRevision()
                         InvalidateCounts(self.inst)
                         if removed ~= nil then
                             debug_print("RemoveItem from chest " .. tostring(owner.prefab) ..
@@ -467,59 +546,79 @@ do
 
         -----------------------------------------------------------
         -- GetCraftingIngredient
-        -- 修正三点：
-        --   1. 不覆盖已有条目（原来的 crafting_items[k] = v 会把原生
-        --      算好的数量顶掉，同时 total_num_found 重复累加 → 取料不齐）
-        --   2. 过滤 v <= 0 与已销毁实体
-        --   3. 跳过 overflow / 已打开容器时口径与 Has 保持一致
+        -- 原实现调用 Container:GetCraftingIngredient，而那个函数只遍历
+        -- 1..numslots；Has / GetSurroundingCounts 却用 pairs(container.slots)
+        -- 统计全部槽位。遇到稀疏槽、扩展槽或自定义容器就会「算得出、取不到」，
+        -- 于是 Builder 检查通过、取料为空、产物照造 —— 免费合成。
+        -- 这里改为与 GetSurroundingCounts 完全同源：同样的槽位遍历、同样的
+        -- Count() 计数、同样的 IsValid / nocrafting 过滤。
         -----------------------------------------------------------
         local oldGetCraftingIngredient = self.GetCraftingIngredient
 
-        self.GetCraftingIngredient = function(self, item, amount)
-            local crafting_items = oldGetCraftingIngredient(self, item, amount) or {}
-
-            local total_num_found = 0
-            for k, v in pairs(crafting_items) do
-                total_num_found = total_num_found + v
-            end
-
-            if total_num_found >= amount then
-                return crafting_items
-            end
-
-            local chests = GetSurroundingContainers(self.inst)
-            local overflow = self:GetOverflowContainer()
+        local function AddChestIngredients(inventory, item, amount, crafting_items, total_num_found)
+            local chests = GetSurroundingContainers(inventory.inst)
+            local overflow = inventory:GetOverflowContainer()
             local overflow_inst = overflow ~= nil and overflow.inst or nil
-            local opencontainers = self.opencontainers
+            local opencontainers = inventory.opencontainers
 
             for i = 1, #chests do
                 local chest = chests[i]
                 if not ShouldSkipChest(chest, opencontainers, overflow_inst) then
                     local container = GetChestContainer(chest)
-                    if container ~= nil
-                        and container ~= overflow
-                        and container.GetCraftingIngredient ~= nil
-                    then
-                        local found = container:GetCraftingIngredient(item, amount - total_num_found, true)
-                        if found ~= nil then
-                            for k, v in pairs(found) do
-                                if v > 0 and crafting_items[k] == nil and k:IsValid() then
-                                    crafting_items[k] = v
-                                    total_num_found = total_num_found + v
+                    if container ~= nil and container ~= overflow then
+                        local slots = container.slots or container.itemslots
+                        if slots ~= nil then
+                            for _, v in pairs(slots) do
+                                if total_num_found >= amount then
+                                    break
+                                end
+                                if v ~= nil and v.prefab == item and v:IsValid()
+                                    and not v:HasTag("nocrafting") and crafting_items[v] == nil
+                                then
+                                    local take = math.min(Count(v), amount - total_num_found)
+                                    if take > 0 then
+                                        crafting_items[v] = take
+                                        total_num_found = total_num_found + take
+                                    end
                                 end
                             end
                         end
-
-                        if total_num_found >= amount then
-                            break
-                        end
                     end
+                end
+                if total_num_found >= amount then
+                    break
                 end
             end
 
-            -- 即将扣料，聚合缓存必然过期
-            InvalidateCounts(self.inst)
+            return total_num_found
+        end
 
+        -- 纯计算，无副作用：Has 的实时复核也走这里，保证「检查」与「扣料」同源。
+        -- 注意不要在这里 InvalidateCounts，否则复核会把聚合缓存反复清空。
+        BuildCraftingIngredients = function(inventory, item, amount)
+            local crafting_items = oldGetCraftingIngredient(inventory, item, amount) or {}
+
+            local total_num_found = 0
+            for k, v in pairs(crafting_items) do
+                if v > 0 and k:IsValid() then
+                    total_num_found = total_num_found + v
+                else
+                    crafting_items[k] = nil -- 过滤 0 数量与已销毁实体
+                end
+            end
+
+            if total_num_found < amount then
+                AddChestIngredients(inventory, item, amount, crafting_items, total_num_found)
+            end
+
+            return crafting_items
+        end
+
+        self.GetCraftingIngredient = function(self, item, amount)
+            local crafting_items = BuildCraftingIngredients(self, item, amount)
+            -- 即将扣料，聚合缓存与复核缓存必然过期
+            BumpContainerRevision()
+            InvalidateCounts(self.inst)
             return crafting_items
         end
 
@@ -547,8 +646,16 @@ do
 
             local counts = GetSurroundingCounts(self)
             num_found = num_found + (counts[prefab] or 0)
+            if num_found < amount then
+                return false, num_found
+            end
 
-            return num_found >= amount, num_found
+            -- 固定栏 / 快捷栏在制作菜单关闭时也能点击，而附近箱子的数量来自
+            -- 服务端广播的快照，可能比扣料晚一帧。允许点击前用实时快照再核一次，
+            -- 避免「客户端说够 -> 服务端拒造」的空点（表现很像材料没被消耗）。
+            local live = GetSurroundingCounts(self, true)
+            local live_total = num_found - (counts[prefab] or 0) + (live[prefab] or 0)
+            return live_total >= amount, live_total
         end
 
     end)
@@ -672,6 +779,8 @@ local function DoUpdateContainer(inst)
     if inst._birt_last ~= result then
         inst._birt_last = result
         inst._item_str:set(result)
+        -- 内容真的变了：让所有玩家的数量缓存与复核缓存立即作废
+        BumpContainerRevision()
         QueueNearbyCraftingRefresh(inst)
         debug_print("UpdateContainerAll: " .. result)
     end
@@ -699,6 +808,8 @@ local function OnContainerDirty(inst)
         buffered[k] = (buffered[k] or 0) + (tonumber(v) or 0)
     end
     inst.buffered_items = buffered
+    -- 客户端快照更新，同样要让"够料"判定缓存失效
+    BumpContainerRevision()
     QueueNearbyCraftingRefresh(inst)
 end
 
